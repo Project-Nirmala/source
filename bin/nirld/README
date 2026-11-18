@@ -1,0 +1,76 @@
+nirld - Nirmala linker (ld)
+
+Standalone static linker for the Nirmala binutils. One code base handles
+both ELF32 and ELF64 relocatable inputs and produces a static ET_EXEC.
+
+Targets
+- elf_x86_64 (ELFCLASS64, RELA)
+- elf_i386   (ELFCLASS32, REL)
+The target is taken from the first object, or forced with -m.
+
+Usage
+  nirld [-m elf_x86_64|elf_i386] [-o out] [-e sym|addr] [-Ttext addr]
+        [-s] [-L dir] [-l name] [--start-group ... --end-group] files...
+
+Features
+- Relocatable objects (.o) and ar archives (.a, GNU and BSD member names)
+- Lazy archive member extraction, archive groups
+- Strong, weak, common and undefined symbol resolution
+- COMDAT groups: duplicates are dropped and aliased to the kept copy
+- .init/.text/.fini, .rodata, init/fini/preinit arrays, .data, .got, .bss
+- Static GOT for the *GOT* relocation types, no PLT
+- Static TLS (local-exec and initial-exec): .tdata/.tbss, PT_TLS, TPOFF and
+  GOTTPOFF/TLS_IE/TLS_GOTIE relocations; the runtime sets the thread pointer
+- --gc-sections: roots are the entry symbol, -u symbols, init/fini arrays,
+  .init/.fini, .eh_frame, SHF_GNU_RETAIN; .eh_frame is kept whole
+- Debug sections (.debug_*, .comment) are merged and relocated; -S drops them
+- -u SYMBOL, --defsym SYM=NUM|SYM|SYM+N, -Map FILE, -z execstack
+- --oformat binary: flat image without headers (use with -Ttext)
+- -z noseparate-code: two PT_LOAD segments (R+X with .rodata, R+W)
+- --unresolved-symbols=ignore-all
+- Linker symbols: __executable_start, etext, edata, end, __bss_start,
+  __{preinit,init,fini}_array_{start,end}, _GLOBAL_OFFSET_TABLE_
+- Output: three PT_LOAD segments (R+X, R, R+W) plus PT_GNU_STACK, section
+  headers, .symtab and .strtab (omitted with -s)
+- Default image base: 0x400000 (x86_64), 0x08048000 (i386)
+
+Layout
+  segment 0  headers, .init, .text, .fini    R+X
+  segment 1  .rodata                         R
+  segment 2  .tdata .tbss .preinit_array .init_array .fini_array
+             .data .got .bss                 R+W
+  .tbss occupies no address space; PT_TLS covers .tdata and .tbss.
+-Ttext places the first code byte at the given address and keeps the ELF
+headers in the page(s) before it.
+
+Not supported
+- Dynamic linking, shared objects, PIE, PLT, linker scripts
+- General-dynamic and local-dynamic TLS (compile with
+  -ftls-model=local-exec or initial-exec), IFUNC, SHN_XINDEX
+- Big-endian objects, compressed debug sections (dropped)
+- Relocatable output (-r), .eh_frame_hdr, section merging of SHF_MERGE data
+
+Adding a target
+Add a relocation table and a struct machine entry in src/reloc.c. A table
+row maps a relocation type to one of the calculations C_ABS, C_PCREL,
+C_GOTSLOT, C_GOTSLOTPC, C_GOTOFF or C_GOTPC, with the field size and
+overflow check. Set the machine number, class and default base address.
+
+Build and test
+  make
+  make test                           (assembler tests, needs as, ar, readelf, nm)
+  NIRCC=/path/to/nircc make test      (also links nircc output end to end)
+Test coverage, for both 64-bit and 32-bit: assembler cases, GCC objects
+(-O0/-O2/-fPIC/-fPIE), gc-sections, DWARF via readelf and addr2line, TLS with
+a real thread pointer, flat binary, defsym, map file and nircc output.
+
+Source map
+  src/main.c    option parsing and link pipeline
+  src/link.c    input order, -l lookup, archive groups
+  src/obj.c     ELF object and archive reader, COMDAT handling
+  src/sym.c     global symbol table and resolution rules
+  src/layout.c  output sections, addresses, linker-defined symbols
+  src/reloc.c   machine tables, GOT, relocation application
+  src/out.c     ELF writer
+
+The host needs a 64-bit unsigned long (LP64). Code is C89.

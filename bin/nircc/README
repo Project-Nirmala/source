@@ -1,0 +1,20 @@
+Nirmala C Compiler
+- Milestones:
+-- local variables
+-- if, while, for, &&, ||
+-- function, parameter, recursive
+-- global variables and literal strings
+-- struct, union, enum, typedef
+-- switch, goto, do, ++, +=, ?:
+-- Array initializers
+-- Preprocessors
+-- unsigned, short, signed, size_t, static
+-- struct initializer, nested, array of struct
+-- pointer to function
+-- optimizer
+-- 'cc' driver
+-- bootstrap
+
+-Build:
+run `make` to compile the compiler and driver
+run `make clean` to clean the build artifacts

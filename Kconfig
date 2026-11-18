@@ -1,0 +1,77 @@
+mainmenu "NirmalaSYS configuration"
+
+menu "Build"
+
+config CROSS_PREFIX
+	string "Toolchain prefix"
+	default ""
+	help
+	  Prefix for gcc, ld and ar. Leave empty to use the native toolchain
+	  on an x86_64 Linux host and x86_64-elf- on any other host.
+
+config OPT_LEVEL
+	int "Optimisation level"
+	range 0 3
+	default 2
+
+config DEBUG_INFO
+	bool "Generate debug information"
+	default y
+
+config WERROR
+	bool "Treat compiler warnings as errors"
+	default y
+
+endmenu
+
+menu "Debugging"
+
+config TRACE
+	bool "Log process creation and exit in the kernel"
+	default n
+
+config SELFTEST
+	bool "Build with selftests"
+	default n
+	select TRACE
+	help
+	  Adds the scheduler test processes, runs the userland selftest
+	  from init and enables kernel process tracing.
+
+endmenu
+
+menu "Storage"
+
+config NODISK
+	bool "Boot with the volatile RAM disk only"
+	default n
+	help
+	  Do not attach the persistent virtio-blk disk image.
+
+config DISK_SIZE
+	string "Disk image size"
+	default "64M"
+	depends on !NODISK
+
+endmenu
+
+menu "Emulator"
+
+config QEMU_MEM
+	string "Guest memory"
+	default "256M"
+
+endmenu
+
+menu "Boot"
+
+config BOOT_TIMEOUT
+	int "Boot menu timeout in seconds"
+	range 0 60
+	default 3
+
+config LIMINE_BRANCH
+	string "Limine binary branch"
+	default "v11.x-binary"
+
+endmenu
