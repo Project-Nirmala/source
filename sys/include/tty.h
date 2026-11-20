@@ -11,5 +11,7 @@ long tty_ioctl(uint64_t req, uint64_t arg);
 
 void kbd_init(void);
 void serial_enable_rx(void);
+void serial_probe_size(void);
+void tty_set_winsize(unsigned short rows, unsigned short cols);
 
 #endif

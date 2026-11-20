@@ -2,6 +2,7 @@
 #include <proc.h>
 #include <serial.h>
 #include <kern.h>
+#include <fbcon.h>
 #include <uaccess.h>
 #include <sys/termios.h>
 #include <sys/errno.h>
@@ -22,6 +23,14 @@ static struct {
     unsigned short rows;
     unsigned short cols;
 } tty;
+
+static unsigned short ser_rows, ser_cols;
+
+void tty_set_winsize(unsigned short rows, unsigned short cols)
+{
+    ser_rows = rows;
+    ser_cols = cols;
+}
 
 static void echo_char(uint8_t c)
 {
@@ -242,8 +251,21 @@ long tty_ioctl(uint64_t req, uint64_t arg)
         tty.fg_pid = pid;
         return 0;
     case TIOCGWINSZ:
-        ws.ws_row = tty.rows ? tty.rows : 24;
-        ws.ws_col = tty.cols ? tty.cols : 80;
+        ws.ws_row = 24;
+        ws.ws_col = 80;
+        if (ser_rows && ser_cols) {
+            ws.ws_row = ser_rows;
+            ws.ws_col = ser_cols;
+        }
+        if (fbcon_rows() > 0 && (!ser_rows || (unsigned)fbcon_rows() < ws.ws_row)) {
+            ws.ws_row = (unsigned short)fbcon_rows();
+            if (!ser_cols || (unsigned)fbcon_cols() < ws.ws_col)
+                ws.ws_col = (unsigned short)fbcon_cols();
+        }
+        if (tty.rows && tty.cols) {
+            ws.ws_row = tty.rows;
+            ws.ws_col = tty.cols;
+        }
         ws.ws_xpixel = 0;
         ws.ws_ypixel = 0;
         return copy_to_user(arg, &ws, sizeof(ws));

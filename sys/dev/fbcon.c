@@ -9,6 +9,7 @@ static uint32_t *fb;
 static uint32_t *shadow;
 static uint32_t  stride;
 static uint32_t  width, height;
+static int       cw = FONT_WIDTH, ch = FONT_HEIGHT, scale = 1;
 static int       cols, rows, cx, cy, saved_cx, saved_cy;
 static uint8_t   rshift, gshift, bshift, rsize, gsize, bsize;
 static bool      ready, cursor_on = true, cursor_drawn, reverse, bold;
@@ -63,9 +64,9 @@ static void fill_cells(int x0, int y0, int x1, int y1)
 
     if (x0 >= x1 || y0 >= y1)
         return;
-    xs = (uint32_t)x0 * FONT_WIDTH;
-    xe = (uint32_t)x1 * FONT_WIDTH;
-    for (y = (uint32_t)y0 * FONT_HEIGHT; y < (uint32_t)y1 * FONT_HEIGHT; y++) {
+    xs = (uint32_t)x0 * cw;
+    xe = (uint32_t)x1 * cw;
+    for (y = (uint32_t)y0 * ch; y < (uint32_t)y1 * ch; y++) {
         uint32_t *srow = shadow + (size_t)y * stride;
         uint32_t *frow = fb + (size_t)y * stride;
 
@@ -77,15 +78,19 @@ static void fill_cells(int x0, int y0, int x1, int y1)
 static void draw_glyph(int col, int row, char c)
 {
     const uint8_t *g = font8x16[(uint8_t)c >= 0x20 && (uint8_t)c < 0x7F ? (uint8_t)c - 0x20 : '?' - 0x20];
-    uint32_t fgc = cur_fg(), bgc = cur_bg(), y, x;
+    uint32_t fgc = cur_fg(), bgc = cur_bg(), y, x, sy, sx;
 
     for (y = 0; y < FONT_HEIGHT; y++) {
-        size_t off = (size_t)((uint32_t)row * FONT_HEIGHT + y) * stride + (uint32_t)col * FONT_WIDTH;
-        uint32_t *sp = shadow + off, *fp = fb + off;
         uint8_t bits = g[y];
 
-        for (x = 0; x < FONT_WIDTH; x++)
-            sp[x] = fp[x] = (bits & (0x80 >> x)) ? fgc : bgc;
+        for (sy = 0; sy < (uint32_t)scale; sy++) {
+            size_t off = (size_t)((uint32_t)row * ch + y * scale + sy) * stride + (uint32_t)col * cw;
+            uint32_t *sp = shadow + off, *fp = fb + off;
+
+            for (x = 0; x < FONT_WIDTH; x++)
+                for (sx = 0; sx < (uint32_t)scale; sx++)
+                    sp[x * scale + sx] = fp[x * scale + sx] = (bits & (0x80 >> x)) ? fgc : bgc;
+        }
     }
 }
 
@@ -94,11 +99,11 @@ static void toggle_cursor(void)
     int col = cx < cols ? cx : cols - 1;
     uint32_t y, x, mask = pack(15);
 
-    for (y = (uint32_t)cy * FONT_HEIGHT + FONT_HEIGHT - 2; y < (uint32_t)(cy + 1) * FONT_HEIGHT; y++) {
-        size_t off = (size_t)y * stride + (uint32_t)col * FONT_WIDTH;
+    for (y = (uint32_t)(cy + 1) * ch - 2 * scale; y < (uint32_t)(cy + 1) * ch; y++) {
+        size_t off = (size_t)y * stride + (uint32_t)col * cw;
         uint32_t *sp = shadow + off, *fp = fb + off;
 
-        for (x = 0; x < FONT_WIDTH; x++)
+        for (x = 0; x < (uint32_t)cw; x++)
             sp[x] = fp[x] = sp[x] ^ mask;
     }
     cursor_drawn = !cursor_drawn;
@@ -106,13 +111,13 @@ static void toggle_cursor(void)
 
 static void scroll_up(void)
 {
-    uint32_t used = (uint32_t)rows * FONT_HEIGHT;
+    uint32_t used = (uint32_t)rows * ch;
 
-    memmove(shadow, shadow + (size_t)FONT_HEIGHT * stride, (size_t)(used - FONT_HEIGHT) * stride * 4);
+    memmove(shadow, shadow + (size_t)ch * stride, (size_t)(used - ch) * stride * 4);
     {
         uint32_t bg = cur_bg(), y, x;
 
-        for (y = used - FONT_HEIGHT; y < used; y++)
+        for (y = used - ch; y < used; y++)
             for (x = 0; x < width; x++)
                 shadow[(size_t)y * stride + x] = bg;
     }
@@ -365,8 +370,21 @@ void fbcon_init(struct limine_framebuffer_response *resp)
     gshift = f->green_mask_shift;
     bsize = f->blue_mask_size;
     bshift = f->blue_mask_shift;
-    cols = (int)(width / FONT_WIDTH);
-    rows = (int)(height / FONT_HEIGHT);
+#if defined(CONFIG_FBCON_SCALE) && CONFIG_FBCON_SCALE > 0
+    scale = CONFIG_FBCON_SCALE;
+#else
+    scale = (int)(width / (80 * FONT_WIDTH));
+    if ((int)(height / (25 * FONT_HEIGHT)) < scale)
+        scale = (int)(height / (25 * FONT_HEIGHT));
+#endif
+    if (scale < 1)
+        scale = 1;
+    if (scale > 8)
+        scale = 8;
+    cw = FONT_WIDTH * scale;
+    ch = FONT_HEIGHT * scale;
+    cols = (int)(width / cw);
+    rows = (int)(height / ch);
     cx = cy = 0;
     fill_cells(0, 0, cols, rows);
     ready = true;
@@ -376,4 +394,14 @@ void fbcon_init(struct limine_framebuffer_response *resp)
     early_len = 0;
     for (i = 0; i < n; i++)
         fbcon_putc(saved[i]);
+}
+
+int fbcon_cols(void)
+{
+    return ready ? cols : 0;
+}
+
+int fbcon_rows(void)
+{
+    return ready ? rows : 0;
 }

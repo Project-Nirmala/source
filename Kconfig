@@ -1,5 +1,46 @@
 mainmenu "NirmalaSYS configuration"
 
+menu "Version"
+
+config VERSION_MAJOR
+	int "Major version"
+	range 0 255
+	default 0
+
+config VERSION_MINOR
+	int "Minor version"
+	range 0 255
+	default 9
+
+config VERSION_PATCH
+	int "Patch level"
+	range 0 255
+	default 0
+
+config VERSION_EXTRA
+	string "Extra version suffix"
+	default ""
+	help
+	  Appended to the version, for example "-rc1" or "-dev".
+
+config VERSION_CODENAME
+	string "Release codename"
+	default ""
+
+endmenu
+
+menu "Display"
+
+config FBCON_SCALE
+	int "Framebuffer console font scale (0 = auto)"
+	range 0 8
+	default 0
+	help
+	  Integer scale of the 8x16 font. 0 picks the largest scale that
+	  still leaves at least 80x25 cells on the framebuffer.
+
+endmenu
+
 menu "Build"
 
 config CROSS_PREFIX

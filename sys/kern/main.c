@@ -8,6 +8,7 @@
 #include <serial.h>
 #include <tty.h>
 #include <fbcon.h>
+#include <sys/version.h>
 #include <fpu.h>
 #include <wallclock.h>
 
@@ -84,7 +85,8 @@ void kmain(void)
         panic("Limine: missing HHDM/executable/memmap response");
     hhdm_offset = hhdm_req.response->offset;
 
-    kprintf("NirmalaSYS Starting!\n");
+    kprintf("NirmalaSYS %s%s%s Starting!\n", NIRMALA_VERSION,
+            NIRMALA_CODENAME[0] ? " " : "", NIRMALA_CODENAME);
 
     gdt_init();
     kprintf("[ok] gdt + tss\n");
@@ -111,6 +113,7 @@ void kmain(void)
     lapic_init();
     tty_init();
     serial_enable_rx();
+    serial_probe_size();
     kbd_init();
     proc_init();
     pit_init(HZ);

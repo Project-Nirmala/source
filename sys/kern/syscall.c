@@ -1,3 +1,4 @@
+#include <sys/version.h>
 #include <proc.h>
 #include <mm.h>
 #include <kern.h>
@@ -589,7 +590,7 @@ static long sys_statfs(uint64_t path_uva, uint64_t buf_uva)
 static long sys_uname(uint64_t uva)
 {
     char u[6][65];
-    static const char *const f[6] = { "Nirmala", "nirmala", "0.9", "NirmalaSYS", "x86_64", "" };
+    static const char *const f[6] = { "Nirmala", "nirmala", NIRMALA_VERSION, "NirmalaSYS " NIRMALA_CODENAME, "x86_64", "" };
     int i, j;
 
     memset(u, 0, sizeof(u));

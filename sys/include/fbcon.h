@@ -13,5 +13,7 @@ struct limine_framebuffer_response;
 
 void fbcon_init(struct limine_framebuffer_response *resp);
 void fbcon_putc(char c);
+int fbcon_cols(void);
+int fbcon_rows(void);
 
 #endif
