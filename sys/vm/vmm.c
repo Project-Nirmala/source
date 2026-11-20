@@ -160,7 +160,6 @@ void vmm_init(struct limine_memmap_response *mm, uint64_t kvirt, uint64_t kphys)
         case LIMINE_MEMMAP_ACPI_RECLAIMABLE:
         case LIMINE_MEMMAP_BOOTLOADER_RECLAIMABLE:
         case LIMINE_MEMMAP_EXECUTABLE_AND_MODULES:
-        case LIMINE_MEMMAP_FRAMEBUFFER:
         case LIMINE_MEMMAP_RESERVED_MAPPED:
             base = PAGE_ALIGN_DOWN(e->base);
             end  = PAGE_ALIGN_UP(e->base + e->length);
@@ -288,6 +287,13 @@ void *vmm_map_mmio(uint64_t pa, size_t len)
     return P2V(pa);
 }
 
+/*
+ * Same as vmm_map_mmio(), but selects the Write-Combining PAT slot
+ * (PAT=1, PCD=1, PWT=0; see pat_init() in cpu.c) instead of strict UC.
+ * Use this only for linear framebuffers: writes may be buffered/merged
+ * and are not guaranteed to land in a fixed order, which is fine for
+ * pixel data but unsafe for device control/status registers.
+ */
 void *vmm_map_mmio_wc(uint64_t pa, size_t len)
 {
     uint64_t start = PAGE_ALIGN_DOWN(pa), end = PAGE_ALIGN_UP(pa + len), p;

@@ -7,6 +7,13 @@ struct cpu cpu0;
 
 #define RFLAGS_MASK 0x44700UL
 
+/*
+ * Reprogram PAT entry 6 (selected by a PTE with PAT=1, PCD=1, PWT=0) from
+ * its power-on default of UC- to Write-Combining (type 1). Nothing else
+ * uses that (PAT,PCD,PWT) combination, so every other uncached mapping
+ * (PWT=1, PCD=1 -> entry 3, strict UC) is unaffected. This must run before
+ * any vmm_map_mmio_wc() mapping is created.
+ */
 static void pat_init(void)
 {
     uint64_t pat = rdmsr(MSR_PAT);

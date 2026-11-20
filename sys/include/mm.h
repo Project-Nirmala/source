@@ -16,7 +16,7 @@ struct limine_memmap_response;
 #define PTE_PWT  (1UL << 3)
 #define PTE_PCD  (1UL << 4)
 #define PTE_PS   (1UL << 7)
-#define PTE_PAT  (1UL << 7)
+#define PTE_PAT  (1UL << 7)  /* same bit as PTE_PS; only meaningful on 4K PTEs */
 #define PTE_NX   (1UL << 63)
 #define PTE_ADDR 0x000FFFFFFFFFF000UL
 

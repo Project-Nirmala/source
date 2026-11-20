@@ -111,6 +111,7 @@ static int do_match(const char *p, const char *s, int flags, int at_start)
         case '\\':
             if (!(flags & FNM_NOESCAPE) && p[1])
                 p++;
+            /* fall through - the escaped character is matched literally */
         default:
             if (*p != *s)
                 return FNM_NOMATCH;

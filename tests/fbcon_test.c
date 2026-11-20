@@ -9,6 +9,7 @@
 uint64_t hhdm_offset;
 static uint32_t *screen;
 void *vmm_map_mmio(uint64_t pa, size_t len) { (void)pa; (void)len; return screen; }
+void *vmm_map_mmio_wc(uint64_t pa, size_t len) { (void)pa; (void)len; return screen; }
 void *kzalloc(size_t n) { return calloc(1, n); }
 void *kmalloc(size_t n) { return malloc(n); }
 void kfree(void *p) { free(p); }

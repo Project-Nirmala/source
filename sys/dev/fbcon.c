@@ -59,17 +59,18 @@ static void blit(uint32_t y0, uint32_t y1)
 
 static void fill_cells(int x0, int y0, int x1, int y1)
 {
-    uint32_t bg = cur_bg(), y, x;
+    uint32_t bg = cur_bg(), y, x, xs, xe;
 
     if (x0 >= x1 || y0 >= y1)
         return;
+    xs = (uint32_t)x0 * FONT_WIDTH;
+    xe = (uint32_t)x1 * FONT_WIDTH;
     for (y = (uint32_t)y0 * FONT_HEIGHT; y < (uint32_t)y1 * FONT_HEIGHT; y++) {
-        uint32_t *row = shadow + (size_t)y * stride;
+        uint32_t *srow = shadow + (size_t)y * stride;
+        uint32_t *frow = fb + (size_t)y * stride;
 
-        for (x = (uint32_t)x0 * FONT_WIDTH; x < (uint32_t)x1 * FONT_WIDTH; x++)
-            row[x] = bg;
-        memcpy(fb + (size_t)y * stride + (uint32_t)x0 * FONT_WIDTH, row + (uint32_t)x0 * FONT_WIDTH,
-               (size_t)(x1 - x0) * FONT_WIDTH * 4);
+        for (x = xs; x < xe; x++)
+            srow[x] = frow[x] = bg;
     }
 }
 
@@ -80,10 +81,11 @@ static void draw_glyph(int col, int row, char c)
 
     for (y = 0; y < FONT_HEIGHT; y++) {
         size_t off = (size_t)((uint32_t)row * FONT_HEIGHT + y) * stride + (uint32_t)col * FONT_WIDTH;
+        uint32_t *sp = shadow + off, *fp = fb + off;
+        uint8_t bits = g[y];
 
         for (x = 0; x < FONT_WIDTH; x++)
-            shadow[off + x] = (g[y] & (0x80 >> x)) ? fgc : bgc;
-        memcpy(fb + off, shadow + off, FONT_WIDTH * 4);
+            sp[x] = fp[x] = (bits & (0x80 >> x)) ? fgc : bgc;
     }
 }
 
@@ -94,10 +96,10 @@ static void toggle_cursor(void)
 
     for (y = (uint32_t)cy * FONT_HEIGHT + FONT_HEIGHT - 2; y < (uint32_t)(cy + 1) * FONT_HEIGHT; y++) {
         size_t off = (size_t)y * stride + (uint32_t)col * FONT_WIDTH;
+        uint32_t *sp = shadow + off, *fp = fb + off;
 
         for (x = 0; x < FONT_WIDTH; x++)
-            shadow[off + x] ^= mask;
-        memcpy(fb + off, shadow + off, FONT_WIDTH * 4);
+            sp[x] = fp[x] = sp[x] ^ mask;
     }
     cursor_drawn = !cursor_drawn;
 }
@@ -328,6 +330,11 @@ void fbcon_putc(char c)
     feed(c);
     if (cursor_on)
         toggle_cursor();
+    /*
+     * fb is mapped Write-Combining: writes may sit in the WC buffer
+     * instead of hitting memory right away. sfence drains it so what we
+     * just drew is actually visible before this call returns.
+     */
     __asm__ volatile("sfence" ::: "memory");
 }
 
