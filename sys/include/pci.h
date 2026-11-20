@@ -12,6 +12,7 @@ struct pci_dev {
 uint32_t pci_read32(uint8_t bus, uint8_t dev, uint8_t fn, uint8_t off);
 void     pci_write32(uint8_t bus, uint8_t dev, uint8_t fn, uint8_t off, uint32_t v);
 bool     pci_find(uint16_t vendor, uint16_t device, struct pci_dev *out);
+bool     pci_find_class(uint32_t classcode, struct pci_dev *out);
 void     pci_enable_io_master(const struct pci_dev *d);
 
 #endif

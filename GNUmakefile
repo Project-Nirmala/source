@@ -69,8 +69,13 @@ ifeq ($(CONFIG_NODISK),y)
 NODISK   := 1
 endif
 ifndef NODISK
+ifeq ($(CONFIG_QEMU_SATA),y)
+QEMUDISK := -drive file=$(DISK),if=none,id=disk0,format=raw \
+            -device ide-hd,drive=disk0,bus=ide.0
+else
 QEMUDISK := -drive file=$(DISK),if=none,id=disk0,format=raw \
             -device virtio-blk-pci,drive=disk0,disable-modern=on,disable-legacy=off
+endif
 DISKDEP  := $(DISK)
 endif
 QEMUFLAGS:= -M q35 -m $(QEMU_MEM) -cdrom $(ISO) $(QEMUCON) $(QEMUDISK) \
@@ -85,8 +90,8 @@ ULDFLAGS := -m elf_x86_64 -nostdlib -static -z max-page-size=0x1000 -z noexecsta
 
 PROGS    := sbin/init bin/login bin/sh bin/ls bin/cat bin/echo bin/vi bin/mkdir bin/rmdir bin/rm bin/cp bin/mv \
             bin/touch bin/wc bin/head bin/tail bin/sort bin/uniq bin/grep bin/tee bin/uname bin/sleep \
-            bin/true bin/false bin/pwd bin/clear bin/resize bin/df bin/kill bin/test bin/date bin/ttydemo bin/utest bin/selftest
-LIBC_SRC := $(wildcard lib/libc/*.c)
+            bin/true bin/false bin/pwd bin/clear bin/resize bin/df bin/kill bin/test bin/date bin/ttydemo bin/utest bin/selftest bin/lsblk bin/dd bin/sync bin/gpt bin/fat
+LIBC_SRC := $(wildcard lib/libc/*.c lib/libdisk/*.c)
 LIBC_OBJ := $(patsubst %.c,$(BUILD)/%.o,$(LIBC_SRC))
 LIBC_A   := $(BUILD)/lib/libc/libc.a
 CRT0     := $(BUILD)/lib/libc/crt0.o

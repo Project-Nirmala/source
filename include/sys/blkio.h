@@ -1,0 +1,12 @@
+#ifndef _SYS_BLKIO_H
+#define _SYS_BLKIO_H
+
+#define BLKGETSIZE64 0x80081272UL
+#define BLKSSZGET    0x1268UL
+#define BLKFLSBUF    0x1261UL
+#define BLKRRPART    0x125FUL
+#define NIR_BLKMODEL 0x4E01UL
+#define NIR_BLKSTART 0x4E02UL
+#define NIR_BLKROOT  0x4E03UL
+
+#endif

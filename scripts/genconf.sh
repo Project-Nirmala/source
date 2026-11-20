@@ -52,6 +52,10 @@ qemu_mem=$(pick "${QEMU_MEM:-}" "$(cfg QEMU_MEM)" 256M)
 boot_timeout=$(pick "${BOOT_TIMEOUT:-}" "$(cfg BOOT_TIMEOUT)" 3)
 disk=${DISK:-disk.img}
 disksize=$(pick "${DISKSIZE:-}" "$(cfg DISK_SIZE)" 64M)
+qsata=
+if [ "$(cfg QEMU_SATA)" = y ]; then
+	qsata=1
+fi
 hostcc=${HOSTCC:-gcc}
 cols=$(tput cols 2>/dev/null || echo 80)
 rows=$(tput lines 2>/dev/null || echo 24)
@@ -89,6 +93,12 @@ EOF
 	fi
 	if [ -n "$nodisk" ]; then
 		printf 'QEMUDISK =\nDISKDEP =\n'
+	elif [ -n "$qsata" ]; then
+		cat <<'EOF'
+QEMUDISK = -drive file=$(DISK),if=none,id=disk0,format=raw \
+           -device ide-hd,drive=disk0,bus=ide.0
+DISKDEP = $(DISK)
+EOF
 	else
 		cat <<'EOF'
 QEMUDISK = -drive file=$(DISK),if=none,id=disk0,format=raw \

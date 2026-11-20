@@ -89,6 +89,14 @@ config NODISK
 	help
 	  Do not attach the persistent virtio-blk disk image.
 
+config QEMU_SATA
+	bool "Attach the QEMU disk as SATA (AHCI)"
+	default n
+	depends on !NODISK
+	help
+	  Use an AHCI disk instead of virtio-blk, matching what VirtualBox
+	  and most real machines provide.
+
 config DISK_SIZE
 	string "Disk image size"
 	default "64M"

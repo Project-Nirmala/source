@@ -193,6 +193,7 @@ struct blkdrv *virtio_blk_attach(uint16_t io)
 
     sectors = inl((uint16_t)(io + REG_CONFIG)) | (uint64_t)inl((uint16_t)(io + REG_CONFIG + 4)) << 32;
     drv.name = "vda";
+    drv.nsectors = sectors;
     drv.nblocks = (uint32_t)(sectors / SECTORS_PER_BLOCK > 0xFFFFFFFFu ? 0xFFFFFFFFu
                                                                       : sectors / SECTORS_PER_BLOCK);
     drv.priv = v;
@@ -212,7 +213,13 @@ struct blkdrv *virtio_blk_probe(void)
             return NULL;
         }
         pci_enable_io_master(&d);
-        return virtio_blk_attach((uint16_t)(d.bar[0] & ~3u));
+        {
+            struct blkdrv *r = virtio_blk_attach((uint16_t)(d.bar[0] & ~3u));
+
+            if (r)
+                blk_register(r);
+            return r;
+        }
     }
     if (pci_find(VIRTIO_VENDOR, VIRTIO_BLK_MODERN, &d))
         kprintf("virtio-blk: found a modern-only device; start QEMU with disable-modern=on\n");

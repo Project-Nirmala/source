@@ -1,5 +1,6 @@
 #include <sys/version.h>
 #include <proc.h>
+#include <blk.h>
 #include <mm.h>
 #include <kern.h>
 #include <exec.h>
@@ -331,7 +332,7 @@ static long sys_getdents64(uint64_t fd, uint64_t buf_uva, uint64_t count)
         h.d_ino = e->ino;
         h.d_off = (int64_t)f->off + 1;
         h.d_reclen = (uint16_t)reclen;
-        h.d_type = e->type == VDIR ? 4 : e->type == VCHR ? 2 : e->type == VPIPE ? 1 : 8;
+        h.d_type = e->type == VDIR ? 4 : e->type == VCHR ? 2 : e->type == VBLK ? 6 : e->type == VPIPE ? 1 : 8;
         memset(tmp + used, 0, reclen);
         memcpy(tmp + used, &h, sizeof(h));
         memcpy(tmp + used + DIRENT_NAME_OFF, name, nlen + 1);
@@ -522,7 +523,7 @@ static long put_stat(struct vnode *vn, uint64_t st_uva)
 
     memset(&st, 0, sizeof(st));
     if (!mode)
-        mode = vn->type == VDIR ? 040755 : vn->type == VCHR ? 020620 :
+        mode = vn->type == VDIR ? 040755 : vn->type == VCHR ? 020620 : vn->type == VBLK ? 060660 :
                vn->type == VPIPE ? 010600 : 0100644;
     st.st_ino = vn->ino;
     st.st_nlink = vn->nlink ? vn->nlink : 1;
@@ -704,7 +705,7 @@ void syscall_dispatch(struct trapframe *tf)
     case SYS_chmod:
     case SYS_fchmod:
     case SYS_fsync:
-    case SYS_sync:        r = 0; break;
+    case SYS_sync:        r = blk_sync_all(); break;
     case SYS_umask:       r = 022; break;
     case SYS_close:       r = sys_close(tf->rdi); break;
     case SYS_ioctl:       r = sys_ioctl(tf->rdi, tf->rsi, tf->rdx); break;

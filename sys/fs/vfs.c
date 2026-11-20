@@ -43,7 +43,9 @@ static struct blkdev *ramdisk_with_fs(void)
 
 void vfs_init(const void *image, size_t size)
 {
-    struct blkdrv *drv = virtio_blk_probe();
+    struct blkdrv *vdrv = virtio_blk_probe();
+    struct blkdrv *sdrv = ahci_probe();
+    struct blkdrv *drv = vdrv ? vdrv : sdrv;
     struct blkdev *dev = NULL;
     bool persistent = false, fresh = false;
 
@@ -81,7 +83,11 @@ void vfs_init(const void *image, size_t size)
     } else if (!drv) {
         kprintf("[ok] disk: none, volatile RAM disk\n");
     }
+    if (persistent)
+        blk_set_root(drv);
+    devfs_init();
     tarfs_extract(image, size);
+    vfs_mkdir("/dev", root_vnode, 0755);
 }
 
 struct vnode *vfs_root(void)
@@ -99,6 +105,10 @@ static int step(struct vnode *dir, const char *name, struct vnode **out)
     }
     if (!strcmp(name, "..")) {
         *out = dir->parent ? dir->parent : dir;
+        return 0;
+    }
+    if (dir == root_vnode && !strcmp(name, "dev")) {
+        *out = devfs_root();
         return 0;
     }
     if (!dir->fs || !dir->fs->lookup)

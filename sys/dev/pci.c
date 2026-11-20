@@ -18,7 +18,7 @@ void pci_write32(uint8_t bus, uint8_t dev, uint8_t fn, uint8_t off, uint32_t v)
     outl(PCI_DATA, v);
 }
 
-bool pci_find(uint16_t vendor, uint16_t device, struct pci_dev *out)
+static bool pci_scan(uint16_t vendor, uint16_t device, int32_t classcode, struct pci_dev *out)
 {
     unsigned bus, dev, fn;
     int i;
@@ -34,8 +34,12 @@ bool pci_find(uint16_t vendor, uint16_t device, struct pci_dev *out)
                 nfn = 8;
             for (fn = 0; fn < nfn; fn++) {
                 id = pci_read32((uint8_t)bus, (uint8_t)dev, (uint8_t)fn, 0);
-                if ((id & 0xFFFF) != vendor || (id >> 16) != device)
+                if (classcode >= 0) {
+                    if ((pci_read32((uint8_t)bus, (uint8_t)dev, (uint8_t)fn, 0x08) >> 8) != (uint32_t)classcode)
+                        continue;
+                } else if ((id & 0xFFFF) != vendor || (id >> 16) != device) {
                     continue;
+                }
                 out->bus = (uint8_t)bus;
                 out->dev = (uint8_t)dev;
                 out->fn = (uint8_t)fn;
@@ -49,6 +53,16 @@ bool pci_find(uint16_t vendor, uint16_t device, struct pci_dev *out)
         }
     }
     return false;
+}
+
+bool pci_find(uint16_t vendor, uint16_t device, struct pci_dev *out)
+{
+    return pci_scan(vendor, device, -1, out);
+}
+
+bool pci_find_class(uint32_t classcode, struct pci_dev *out)
+{
+    return pci_scan(0, 0, (int32_t)classcode, out);
 }
 
 void pci_enable_io_master(const struct pci_dev *d)
