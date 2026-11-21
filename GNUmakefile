@@ -52,7 +52,7 @@ LDFLAGS  := -m elf_x86_64 -nostdlib -static -z max-page-size=0x1000 -z noexecsta
             -T sys/arch/$(ARCH)/linker.ld
 
 SRCS_C   := $(wildcard sys/kern/*.c) $(wildcard sys/vm/*.c) $(wildcard sys/fs/*.c) \
-            $(wildcard sys/dev/*.c) $(wildcard sys/arch/$(ARCH)/*.c)
+            $(wildcard sys/dev/*.c) $(wildcard sys/net/*.c) $(wildcard sys/arch/$(ARCH)/*.c)
 SRCS_S   := $(wildcard sys/arch/$(ARCH)/*.S)
 OBJS     := $(patsubst %.c,$(BUILD)/%.o,$(SRCS_C)) $(patsubst %.S,$(BUILD)/%.o,$(SRCS_S))
 
@@ -79,7 +79,8 @@ QEMUDISK := -drive file=$(DISK),if=none,id=disk0,format=raw \
 endif
 DISKDEP  := $(DISK)
 endif
-QEMUFLAGS:= -M q35 -m $(QEMU_MEM) -cdrom $(ISO) $(QEMUCON) $(QEMUDISK) \
+QEMUNET  := -netdev user,id=net0 -device virtio-net-pci,netdev=net0,disable-modern=on,disable-legacy=off
+QEMUFLAGS:= -M q35 -m $(QEMU_MEM) -cdrom $(ISO) $(QEMUCON) $(QEMUDISK) $(QEMUNET) \
             -display none -no-reboot -no-shutdown
 
 UCFLAGS  := -std=gnu11 -O$(OPTLEVEL) -Wall -Wextra $(WERRFLAG) -ffreestanding -fno-builtin \
@@ -91,7 +92,7 @@ ULDFLAGS := -m elf_x86_64 -nostdlib -static -z max-page-size=0x1000 -z noexecsta
 
 PROGS    := sbin/init bin/login bin/sh bin/ls bin/cat bin/echo bin/vi bin/mkdir bin/rmdir bin/rm bin/cp bin/mv \
             bin/touch bin/wc bin/head bin/tail bin/sort bin/uniq bin/grep bin/tee bin/uname bin/sleep \
-            bin/true bin/false bin/pwd bin/clear bin/resize bin/df bin/kill bin/test bin/date bin/ttydemo bin/utest bin/selftest bin/lsblk bin/dd bin/sync bin/gpt bin/fat
+            bin/true bin/false bin/pwd bin/clear bin/resize bin/df bin/kill bin/test bin/date bin/ttydemo bin/utest bin/selftest bin/lsblk bin/dd bin/sync bin/gpt bin/fat bin/wget bin/ping
 LIBC_SRC := $(wildcard lib/libc/*.c lib/libdisk/*.c)
 LIBC_OBJ := $(patsubst %.c,$(BUILD)/%.o,$(LIBC_SRC))
 LIBC_A   := $(BUILD)/lib/libc/libc.a
@@ -275,7 +276,7 @@ run: $(ISO) $(DISKDEP)
 
 run-gui: $(ISO) $(DISKDEP)
 	$(LOG) "QEMU" "$(ISO)"
-	$(Q)$(QEMU) -M q35 -m $(QEMU_MEM) -cdrom $(ISO) $(QEMUCON) $(QEMUDISK) -no-reboot -no-shutdown
+	$(Q)$(QEMU) -M q35 -m $(QEMU_MEM) -cdrom $(ISO) $(QEMUCON) $(QEMUDISK) $(QEMUNET) -no-reboot -no-shutdown
 
 debug: $(ISO) $(DISKDEP)
 	$(LOG) "DEBUG" "$(ISO)"

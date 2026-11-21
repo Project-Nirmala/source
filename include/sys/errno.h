@@ -31,5 +31,16 @@
 #define EFBIG   27
 #define ENOSPC  28
 #define ENOTEMPTY 39
+#define EAGAIN  11
+#define EAFNOSUPPORT 97
+#define EPROTONOSUPPORT 93
+#define EADDRINUSE 98
+#define ENETUNREACH 101
+#define ECONNRESET 104
+#define EISCONN 106
+#define ENOTCONN 107
+#define ETIMEDOUT 110
+#define ECONNREFUSED 111
+#define EDESTADDRREQ 89
 
 #endif

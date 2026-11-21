@@ -24,7 +24,7 @@ uobj() {
 }
 
 KOBJS=
-for f in sys/kern/*.c sys/vm/*.c sys/fs/*.c sys/dev/*.c sys/arch/$ARCH/*.c; do
+for f in sys/kern/*.c sys/vm/*.c sys/fs/*.c sys/dev/*.c sys/net/*.c sys/arch/$ARCH/*.c; do
 	if [ ! -f "$f" ]; then
 		continue
 	fi

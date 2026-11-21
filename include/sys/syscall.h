@@ -46,5 +46,11 @@
 #define SYS_chdir       80
 #define SYS_getppid     110
 #define SYS_getdents64  217
+#define SYS_socket      41
+#define SYS_connect     42
+#define SYS_sendto      44
+#define SYS_recvfrom    45
+#define SYS_bind        49
+#define SYS_netinfo     400
 
 #endif

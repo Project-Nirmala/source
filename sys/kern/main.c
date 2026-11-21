@@ -13,6 +13,7 @@
 #include <wallclock.h>
 #include <cmdline.h>
 #include <blk.h>
+#include <net.h>
 
 #define HZ 100
 
@@ -145,6 +146,7 @@ void kmain(void)
     if (execfile_req.response && execfile_req.response->executable_file)
         devfs_add_blob("kernel", execfile_req.response->executable_file->address,
                        execfile_req.response->executable_file->size);
+    net_init();
     vfs_init(module_req.response->modules[0]->address, module_req.response->modules[0]->size);
     kprintf("[ok] vfs: initrd %lu bytes\n", module_req.response->modules[0]->size);
 

@@ -11,6 +11,7 @@
 #include <sys/syscall.h>
 #include <sys/errno.h>
 #include <sys/fcntl.h>
+#include <net.h>
 
 #define IO_CHUNK 512
 
@@ -675,6 +676,13 @@ static long sys_utime(uint64_t path_uva, uint64_t times_uva)
     return vfs_utime(vn, (uint32_t)t[1]);
 }
 
+long sys_socket(uint64_t, uint64_t, uint64_t);
+long sys_connect(uint64_t, uint64_t, uint64_t);
+long sys_bind(uint64_t, uint64_t, uint64_t);
+long sys_sendto(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+long sys_recvfrom(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+long sys_netinfo(uint64_t);
+
 void syscall_dispatch(struct trapframe *tf)
 {
     long r;
@@ -723,6 +731,12 @@ void syscall_dispatch(struct trapframe *tf)
     case SYS_getdents64:  r = sys_getdents64(tf->rdi, tf->rsi, tf->rdx); break;
     case SYS_sched_yield: proc_yield(); r = 0; break;
     case SYS_nanosleep:   r = sys_nanosleep(tf->rdi); break;
+    case SYS_socket:      r = sys_socket(tf->rdi, tf->rsi, tf->rdx); break;
+    case SYS_connect:     r = sys_connect(tf->rdi, tf->rsi, tf->rdx); break;
+    case SYS_bind:        r = sys_bind(tf->rdi, tf->rsi, tf->rdx); break;
+    case SYS_sendto:      r = sys_sendto(tf->rdi, tf->rsi, tf->rdx, tf->r10, tf->r8, tf->r9); break;
+    case SYS_recvfrom:    r = sys_recvfrom(tf->rdi, tf->rsi, tf->rdx, tf->r10, tf->r8, tf->r9); break;
+    case SYS_netinfo:     r = sys_netinfo(tf->rdi); break;
     case SYS_execve:      r = sys_execve(tf, tf->rdi, tf->rsi, tf->rdx); break;
     case SYS_exit:        proc_exit((int)tf->rdi);
     default:              r = -ENOSYS; break;
