@@ -85,18 +85,18 @@ QEMUFLAGS:= -M q35 -m $(QEMU_MEM) -cdrom $(ISO) $(QEMUCON) $(QEMUDISK) \
 UCFLAGS  := -std=gnu11 -O$(OPTLEVEL) -Wall -Wextra $(WERRFLAG) -ffreestanding -fno-builtin \
             -fno-stack-protector -fno-pic -fno-pie \
             -fno-tree-loop-distribute-patterns -fno-asynchronous-unwind-tables \
-            -Iinclude -Ilib/libc/include -include $(AUTOCONF)
+            -Iinclude -Ilib/libc/include -idirafter sys/include -include $(AUTOCONF)
 ULDFLAGS := -m elf_x86_64 -nostdlib -static -z max-page-size=0x1000 -z noexecstack \
             -T lib/libc/user.ld
 
 PROGS    := sbin/init bin/login bin/sh bin/ls bin/cat bin/echo bin/vi bin/mkdir bin/rmdir bin/rm bin/cp bin/mv \
             bin/touch bin/wc bin/head bin/tail bin/sort bin/uniq bin/grep bin/tee bin/uname bin/sleep \
-            bin/true bin/false bin/pwd bin/clear bin/resize bin/df bin/kill bin/test bin/date bin/ttydemo bin/utest bin/selftest bin/lsblk bin/dd bin/sync bin/gpt bin/fat bin/install
+            bin/true bin/false bin/pwd bin/clear bin/resize bin/df bin/kill bin/test bin/date bin/ttydemo bin/utest bin/selftest bin/lsblk bin/dd bin/sync bin/gpt bin/fat
 LIBC_SRC := $(wildcard lib/libc/*.c lib/libdisk/*.c)
 LIBC_OBJ := $(patsubst %.c,$(BUILD)/%.o,$(LIBC_SRC))
 LIBC_A   := $(BUILD)/lib/libc/libc.a
 CRT0     := $(BUILD)/lib/libc/crt0.o
-MPROGS   := bin/nirmake bin/nirld bin/nircc
+MPROGS   := bin/nirmake bin/nirld bin/nircc bin/install
 ALIASES  := bin/make:bin/nirmake bin/ld:bin/nirld bin/[:bin/test
 ROOTBINS := $(addprefix $(BUILD)/rootfs/,$(PROGS) $(MPROGS)) $(BUILD)/rootfs/bin/cc
 ROOTETC  := $(patsubst rootfs/%,$(BUILD)/rootfs/%,$(shell find rootfs -type f)) $(BUILD)/rootfs/usr/share/doc/LICENSE \
@@ -293,6 +293,10 @@ HOSTCC    ?= gcc
 HOSTFLAGS := -O1 -g -fsanitize=address,undefined -Wall -Wextra -Wno-array-bounds -Wno-unused-parameter -Iinclude -Isys/include -Isys/arch/amd64/include
 
 test: all
+	$(LOG) "TEST" "mkroot_test"
+	$(Q)$(HOSTCC) $(HOSTFLAGS) -idirafter lib/libc/include -DLEMON_HOST_TEST tests/mkroot_test.c bin/install/src/mkroot.c \
+		sys/fs/lemon_core.c lib/libdisk/gpt.c -o $(BUILD)/mkroot_test
+	$(Q)$(BUILD)/mkroot_test
 	$(LOG) "TEST" "lemon_test"
 	$(Q)$(HOSTCC) $(HOSTFLAGS) -DLEMON_HOST_TEST tests/lemon_test.c sys/fs/lemon_core.c -o $(BUILD)/lemon_test
 	$(Q)$(BUILD)/lemon_test

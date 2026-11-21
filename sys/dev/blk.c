@@ -61,6 +61,16 @@ static int sect_rw(struct blkdrv *d, uint64_t lba, uint32_t count, void *buf, in
         uint32_t blk = (uint32_t)(lba / (LEMON_BSIZE / SECTOR));
         uint32_t off = (uint32_t)(lba % (LEMON_BSIZE / SECTOR)) * SECTOR;
 
+        if (!off && count >= LEMON_BSIZE / SECTOR) {
+            int r = write ? d->write(d->priv, blk, p) : d->read(d->priv, blk, p);
+
+            if (r < 0)
+                return -EIO;
+            lba += LEMON_BSIZE / SECTOR;
+            count -= LEMON_BSIZE / SECTOR;
+            p += LEMON_BSIZE;
+            continue;
+        }
         if (d->read(d->priv, blk, tmp) < 0)
             return -EIO;
         if (write) {
