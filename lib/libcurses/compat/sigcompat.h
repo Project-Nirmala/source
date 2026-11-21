@@ -14,6 +14,7 @@ struct sigaction {
     int sa_flags;
 };
 #define SIG_BLOCK 0
+#define SIG_UNBLOCK 1
 #define SIG_SETMASK 2
 int sigaction(int sig, const struct sigaction *act, struct sigaction *old);
 int sigemptyset(sigset_t *s);

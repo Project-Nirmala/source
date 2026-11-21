@@ -1,0 +1,30 @@
+#ifndef _CURSES_COMPAT_NIRMALA_H
+#define _CURSES_COMPAT_NIRMALA_H
+
+#include <sys/cdefs.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <sys/errno.h>
+#include "sigcompat.h"
+
+#include <stdarg.h>
+#include <stddef.h>
+#include <time.h>
+#include <stdio.h>
+
+/* Functions missing from the Nirmala libc; implemented in compat.c */
+int nanosleep(const struct timespec *req, struct timespec *rem);
+int asprintf(char **out, const char *fmt, ...);
+int vasprintf(char **out, const char *fmt, va_list ap);
+int vsscanf(const char *str, const char *fmt, va_list ap);
+unsigned btowc(int c);
+int wctomb(char *s, int wc);
+int wcwidth(int c);
+int fpurge(FILE *f);
+FILE *open_memstream(char **buf, size_t *size);
+
+#ifndef ENOTSUP
+#define ENOTSUP 95
+#endif
+
+#endif

@@ -97,9 +97,10 @@ LIBC_SRC := $(wildcard lib/libc/*.c lib/libdisk/*.c)
 LIBC_OBJ := $(patsubst %.c,$(BUILD)/%.o,$(LIBC_SRC))
 LIBC_A   := $(BUILD)/lib/libc/libc.a
 CRT0     := $(BUILD)/lib/libc/crt0.o
-MPROGS   := bin/nirmake bin/nirld bin/nircc bin/install
+MPROGS   := bin/nirmake bin/nirld bin/nircc
+CPROGS   := bin/install
 ALIASES  := bin/make:bin/nirmake bin/ld:bin/nirld bin/[:bin/test
-ROOTBINS := $(addprefix $(BUILD)/rootfs/,$(PROGS) $(MPROGS)) $(BUILD)/rootfs/bin/cc
+ROOTBINS := $(addprefix $(BUILD)/rootfs/,$(PROGS) $(MPROGS) $(CPROGS)) $(BUILD)/rootfs/bin/cc
 ROOTETC  := $(patsubst rootfs/%,$(BUILD)/rootfs/%,$(shell find rootfs -type f)) $(BUILD)/rootfs/usr/share/doc/LICENSE \
             $(BUILD)/rootfs/usr/lib/crt0.o $(BUILD)/rootfs/usr/lib/libc.a \
             $(BUILD)/rootfs/usr/share/examples/hello/hello.o $(BUILD)/rootfs/usr/include/.installed \
@@ -162,6 +163,29 @@ $(LIBC_A): $(LIBC_OBJ)
 	$(Q)rm -f $@
 	$(Q)$(AR) rcs $@ $^
 
+CURSES_DIR   := lib/libcurses
+ifeq ($(wildcard $(CURSES_DIR)/src/curses.c),)
+$(info FETCH    libcurses)
+$(shell sh scripts/vendor-curses.sh >&2)
+endif
+CURSES_SRCS  := acs.c addbytes.c addch.c addchnstr.c addnstr.c attributes.c background.c bell.c border.c box.c chgat.c clear.c clearok.c clrtobot.c clrtoeol.c color.c copywin.c cr_put.c ctrace.c cur_hash.c curs_set.c curses.c delch.c deleteln.c delwin.c echochar.c erase.c fileio.c flushok.c fullname.c getch.c getstr.c getyx.c id_subwins.c idcok.c idlok.c immedok.c inch.c inchstr.c initscr.c insch.c insdelln.c insertln.c insstr.c instr.c keyname.c keypad.c leaveok.c line.c meta.c mouse.c move.c mvwin.c newwin.c nodelay.c notimeout.c overlay.c overwrite.c pause.c putchar.c refresh.c resize.c ripoffline.c scanw.c screen.c scroll.c scrollok.c setterm.c slk.c standout.c syncok.c timeout.c toucholap.c touchwin.c tstp.c tty.c unctrl.c underscore.c version.c
+TINFO_SRCS   := term.c ti.c setupterm.c curterm.c tparm.c tputs.c
+CURSES_OBJ   := $(addprefix $(BUILD)/$(CURSES_DIR)/src/,$(CURSES_SRCS:.c=.o)) \
+                $(addprefix $(BUILD)/$(CURSES_DIR)/terminfo/,$(TINFO_SRCS:.c=.o)) \
+                $(BUILD)/$(CURSES_DIR)/gen/out/hash.o $(BUILD)/$(CURSES_DIR)/compat/compat.o $(BUILD)/$(CURSES_DIR)/compat/printw.o
+CURSES_A     := $(BUILD)/lib/libcurses.a
+CURSES_FLAGS := $(filter-out -Werror,$(UCFLAGS)) -w -DDISABLE_WCHAR -I$(CURSES_DIR)/compat -I$(CURSES_DIR)/src \
+                -I$(CURSES_DIR)/terminfo -I$(CURSES_DIR)/gen/out -include $(CURSES_DIR)/compat/nirmala.h
+
+$(CURSES_OBJ): CFLAGS := $(CURSES_FLAGS)
+$(CURSES_OBJ): $(wildcard $(CURSES_DIR)/compat/*.h $(CURSES_DIR)/compat/sys/*.h)
+
+$(CURSES_A): $(CURSES_OBJ)
+	$(LOG) "AR" "$@"
+	@mkdir -p $(dir $@)
+	$(Q)rm -f $@
+	$(Q)$(AR) rcs $@ $^
+
 define PROG_RULE
 $$(BUILD)/rootfs/$(1): $$(BUILD)/$(1)/$(notdir $(1)).o $$(CRT0) $$(LIBC_A) lib/libc/user.ld
 	$$(LOG) "LD" "$$@"
@@ -169,6 +193,17 @@ $$(BUILD)/rootfs/$(1): $$(BUILD)/$(1)/$(notdir $(1)).o $$(CRT0) $$(LIBC_A) lib/l
 	$$(Q)$$(LD) $$(ULDFLAGS) -o $$@ $$(CRT0) $$< $$(LIBC_A)
 endef
 $(foreach p,$(PROGS),$(eval $(call PROG_RULE,$(p))))
+
+define CPROG_RULE
+$(1)_OBJ := $$(patsubst %.c,$$(BUILD)/%.o,$$(wildcard $(1)/src/*.c))
+$$(BUILD)/rootfs/$(1): $$($(1)_OBJ) $$(CRT0) $$(CURSES_A) $$(LIBC_A) lib/libc/user.ld
+	$$(LOG) "LD" "$$@"
+	@mkdir -p $$(dir $$@)
+	$$(Q)$$(LD) $$(ULDFLAGS) -o $$@ $$(CRT0) $$($(1)_OBJ) $$(CURSES_A) $$(LIBC_A)
+endef
+$(foreach p,$(CPROGS),$(eval $(call CPROG_RULE,$(p))))
+$(BUILD)/bin/install/src/ui_curses.o: CFLAGS := $(filter-out -Werror,$(UCFLAGS)) -DDISABLE_WCHAR -I$(CURSES_DIR)/compat \
+                                                 -I$(CURSES_DIR)/src -I$(CURSES_DIR)/terminfo -include $(CURSES_DIR)/compat/nirmala.h
 
 define MPROG_RULE
 $(1)_OBJ := $$(patsubst %.c,$$(BUILD)/%.o,$$(wildcard $(1)/src/*.c))

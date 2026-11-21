@@ -36,6 +36,7 @@ static void serial_raw_putc(char c)
 }
 
 static int probe_state;
+static uint64_t probe_deadline;
 static unsigned probe_rows, probe_cols;
 
 void serial_probe_size(void)
@@ -44,6 +45,7 @@ void serial_probe_size(void)
     size_t i;
 
     probe_state = 1;
+    probe_deadline = pit_ticks() + 100;
     for (i = 0; q[i]; i++)
         serial_raw_putc(q[i]);
 }
@@ -95,6 +97,8 @@ static bool probe_feed(uint8_t c)
 
 static void serial_rx_char(uint8_t c)
 {
+    if (probe_state && pit_ticks() > probe_deadline)
+        probe_state = 0;
     if (probe_state && probe_feed(c))
         return;
     tty_input(c);

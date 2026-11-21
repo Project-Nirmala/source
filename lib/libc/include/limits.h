@@ -17,6 +17,7 @@
 #define LONG_MIN   (-LONG_MAX - 1L)
 #define ULONG_MAX  18446744073709551615UL
 #define PATH_MAX   1024
+#define MB_LEN_MAX 1
 #define NAME_MAX   255
 
 #endif

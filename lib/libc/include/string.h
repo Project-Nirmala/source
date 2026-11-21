@@ -22,6 +22,8 @@ size_t strspn(const char *s, const char *accept);
 size_t strcspn(const char *s, const char *reject);
 char  *strpbrk(const char *s, const char *accept);
 char  *strdup(const char *s);
+char  *strndup(const char *s, size_t n);
+size_t strlcpy(char *dst, const char *src, size_t size);
 int    strcasecmp(const char *a, const char *b);
 int    strncasecmp(const char *a, const char *b, size_t n);
 

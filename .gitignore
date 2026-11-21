@@ -2,3 +2,6 @@ build/
 limine/
 disk.img
 .config
+lib/libcurses/src/
+lib/libcurses/terminfo/
+lib/libcurses/host/

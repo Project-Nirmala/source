@@ -10,7 +10,7 @@ struct stat {
     unsigned long st_rdev;
     long          st_size, st_blksize, st_blocks;
     struct timespec st_atim, st_mtim, st_ctim;
-    long          __unused[3];
+    long          __reserved[3];
 };
 
 #define S_IFMT   0170000

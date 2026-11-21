@@ -3,6 +3,7 @@
 
 typedef unsigned int  tcflag_t;
 typedef unsigned char cc_t;
+typedef unsigned int  speed_t;
 
 #define NCCS 19
 
@@ -36,13 +37,41 @@ struct winsize {
 #define ECHOE   0x10
 #define ECHOK   0x20
 
+#define ECHONL  0x40
+#define NOFLSH  0x80
+#define TOSTOP  0x100
+#define IEXTEN  0x8000
+
+#define IGNBRK  0x01
+#define BRKINT  0x02
+#define IGNPAR  0x04
+#define PARMRK  0x08
+#define INPCK   0x10
+#define ISTRIP  0x20
+#define INLCR   0x40
+#define IGNCR   0x80
 #define ICRNL   0x100
+#define IXON    0x400
+#define IXANY   0x800
+#define IXOFF   0x1000
 
 #define OPOST   0x01
 #define ONLCR   0x04
 
+#define CSIZE   0x30
+#define CS5     0x00
+#define CS6     0x10
+#define CS7     0x20
 #define CS8     0x30
+#define CSTOPB  0x40
+#define PARENB  0x100
+#define PARODD  0x200
+#define HUPCL   0x400
+#define CLOCAL  0x800
 #define CREAD   0x80
+#define B0      0
+#define B9600   0x0D
+#define B38400  0x0F
 #define B115200 0x1002
 
 #define TCGETS      0x5401

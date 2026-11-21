@@ -1,5 +1,7 @@
 #ifndef _COMPAT_CDEFS_H
 #define _COMPAT_CDEFS_H
+#define __warn_references(a, b)
+#define _DIAGASSERT(x) ((void)0)
 #define __BEGIN_DECLS
 #define __END_DECLS
 #define __dead __attribute__((noreturn))

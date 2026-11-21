@@ -124,8 +124,8 @@ int main(void)
     db[n] = 0;
 
     for (;;) {
-        char e_path[] = "PATH=/bin:/sbin", e_home[96], e_user[96], e_shell[96];
-        char *envp[5], *argv[2];
+        char e_path[] = "PATH=/bin:/sbin", e_term[] = "TERM=linux", e_home[96], e_user[96], e_shell[96];
+        char *envp[6], *argv[2];
         char dbcopy[sizeof(db)];
 
         say("nirmala login: ");
@@ -148,7 +148,7 @@ int main(void)
         kv(e_home, sizeof(e_home), "HOME=", a.home);
         kv(e_user, sizeof(e_user), "USER=", user);
         kv(e_shell, sizeof(e_shell), "SHELL=", a.shell);
-        envp[0] = e_path; envp[1] = e_home; envp[2] = e_user; envp[3] = e_shell; envp[4] = 0;
+        envp[0] = e_path; envp[1] = e_home; envp[2] = e_user; envp[3] = e_shell; envp[4] = e_term; envp[5] = 0;
         argv[0] = "sh";
         argv[1] = 0;
         chdir(a.home);

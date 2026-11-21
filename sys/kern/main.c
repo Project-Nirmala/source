@@ -86,7 +86,7 @@ static void kheap_selftest(void)
 void kmain(void)
 {
     static char *const init_argv[] = { "init", NULL };
-    static char *const init_env[] = { "PATH=/bin:/sbin", "HOME=/", NULL };
+    static char *const init_env[] = { "PATH=/bin:/sbin", "HOME=/", "TERM=linux", NULL };
 
     serial_init();
 
