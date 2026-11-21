@@ -14,6 +14,7 @@
 #include <cmdline.h>
 #include <blk.h>
 #include <net.h>
+#include <power.h>
 
 #define HZ 100
 
@@ -23,6 +24,11 @@ static volatile uint64_t limine_base_revision[] = LIMINE_BASE_REVISION(5);
 __attribute__((used, section(".limine_requests")))
 static volatile struct limine_hhdm_request hhdm_req = {
     .id = LIMINE_HHDM_REQUEST_ID, .revision = 0, .response = 0
+};
+
+__attribute__((used, section(".limine_requests")))
+static volatile struct limine_rsdp_request rsdp_req = {
+    .id = LIMINE_RSDP_REQUEST_ID, .revision = 0, .response = 0
 };
 
 __attribute__((used, section(".limine_requests")))
@@ -97,6 +103,11 @@ void kmain(void)
     if (!hhdm_req.response || !exec_req.response || !memmap_req.response)
         panic("Limine: missing HHDM/executable/memmap response");
     hhdm_offset = hhdm_req.response->offset;
+    if (rsdp_req.response && rsdp_req.response->address) {
+        uint64_t a = (uint64_t)(uintptr_t)rsdp_req.response->address;
+
+        acpi_rsdp_phys = a >= hhdm_offset ? a - hhdm_offset : a;
+    }
 
     kprintf("NirmalaSYS %s%s%s Starting!\n", NIRMALA_VERSION,
             NIRMALA_CODENAME[0] ? " " : "", NIRMALA_CODENAME);

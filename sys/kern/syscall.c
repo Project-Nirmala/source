@@ -12,8 +12,12 @@
 #include <sys/errno.h>
 #include <sys/fcntl.h>
 #include <net.h>
+#include <power.h>
+#include <kbd.h>
 
 #define IO_CHUNK 512
+
+static char hostname[65] = "nirmala";
 
 static void free_strv(char **v)
 {
@@ -127,17 +131,30 @@ static long sys_open(uint64_t path_uva, uint64_t flags, uint64_t mode)
     struct vnode *vn;
     struct file *f;
     long r;
-    int fd, acc = (int)(flags & O_ACCMODE);
+    int fd, existed, acc = (int)(flags & O_ACCMODE);
 
     r = copy_str_from_user(path, path_uva, sizeof(path));
     if (r < 0)
         return r;
-    if (flags & O_CREAT)
-        r = vfs_create(path, curproc->cwd, (uint32_t)mode & 0777, (flags & O_EXCL) != 0, &vn);
-    else
+    if (flags & O_CREAT) {
+        struct vnode *old;
+
+        existed = vfs_lookup(path, curproc->cwd, &old) == 0;
+        r = vfs_create(path, curproc->cwd, (uint32_t)mode & 07777, (flags & O_EXCL) != 0, &vn);
+    } else {
+        existed = 1;
         r = vfs_lookup(path, curproc->cwd, &vn);
+    }
     if (r < 0)
         return r;
+    if (existed) {
+        int want = acc == O_RDONLY ? VP_R : acc == O_WRONLY ? VP_W : VP_R | VP_W;
+
+        if ((flags & O_TRUNC) && acc == O_RDONLY)
+            want = VP_W;
+        if (vfs_perm(vn, want) < 0)
+            return -EACCES;
+    }
     if (vn->type == VDIR && acc != O_RDONLY)
         return -EISDIR;
     if ((flags & O_DIRECTORY) && vn->type != VDIR)
@@ -278,6 +295,8 @@ static long sys_chdir(uint64_t path_uva)
         return r;
     if (vn->type != VDIR)
         return -ENOTDIR;
+    if (vfs_perm(vn, VP_X) < 0)
+        return -EACCES;
     curproc->cwd = vn;
     return 0;
 }
@@ -444,7 +463,7 @@ static long sys_mkdir(uint64_t path_uva, uint64_t mode)
     char path[PATH_MAX];
     long r = user_path(path_uva, path);
 
-    return r < 0 ? r : vfs_mkdir(path, curproc->cwd, (uint32_t)mode & 0777);
+    return r < 0 ? r : vfs_mkdir(path, curproc->cwd, (uint32_t)mode & 01777);
 }
 
 static long sys_rmdir(uint64_t path_uva)
@@ -485,7 +504,11 @@ static long sys_truncate(uint64_t path_uva, int64_t len)
     if (len < 0)
         return -EINVAL;
     r = vfs_lookup(path, curproc->cwd, &vn);
-    return r < 0 ? r : vfs_truncate(vn, (uint64_t)len);
+    if (r < 0)
+        return r;
+    if (vfs_perm(vn, VP_W) < 0)
+        return -EACCES;
+    return vfs_truncate(vn, (uint64_t)len);
 }
 
 static long sys_ftruncate(uint64_t fd, int64_t len)
@@ -592,7 +615,7 @@ static long sys_statfs(uint64_t path_uva, uint64_t buf_uva)
 static long sys_uname(uint64_t uva)
 {
     char u[6][65];
-    static const char *const f[6] = { "Nirmala", "nirmala", NIRMALA_VERSION, "NirmalaSYS " NIRMALA_CODENAME, "x86_64", "" };
+    const char *const f[6] = { "Nirmala", hostname, NIRMALA_VERSION, "NirmalaSYS " NIRMALA_CODENAME, "x86_64", "" };
     int i, j;
 
     memset(u, 0, sizeof(u));
@@ -604,7 +627,13 @@ static long sys_uname(uint64_t uva)
 
 static long sys_kill(int64_t pid, int64_t sig)
 {
+    uint32_t owner;
+
     if (pid <= 1 || sig < 0 || sig > 31)
+        return -EPERM;
+    if (proc_owner((int)pid, &owner) < 0)
+        return -ESRCH;
+    if (curproc->uid != 0 && curproc->uid != owner)
         return -EPERM;
     if (sig == 0)
         return proc_signal((int)pid, 0) < 0 ? -ESRCH : 0;
@@ -667,6 +696,8 @@ static long sys_utime(uint64_t path_uva, uint64_t times_uva)
     r = vfs_lookup(path, curproc->cwd, &vn);
     if (r < 0)
         return r;
+    if (curproc->uid != 0 && curproc->uid != vn->uid && (times_uva || vfs_perm(vn, VP_W) < 0))
+        return -EPERM;
     if (times_uva) {
         if (copy_from_user(t, times_uva, sizeof(t)) < 0)
             return -EFAULT;
@@ -674,6 +705,94 @@ static long sys_utime(uint64_t path_uva, uint64_t times_uva)
         t[1] = (int64_t)wall_seconds();
     }
     return vfs_utime(vn, (uint32_t)t[1]);
+}
+
+static long sys_setuid_gid(uint64_t id, int is_gid)
+{
+    uint32_t *slot = is_gid ? &curproc->gid : &curproc->uid;
+
+    if (curproc->uid != 0 && (uint32_t)id != *slot)
+        return -EPERM;
+    *slot = (uint32_t)id;
+    return 0;
+}
+
+static long sys_chown_path(uint64_t path_uva, int64_t uid, int64_t gid)
+{
+    char path[PATH_MAX];
+    struct vnode *vn;
+    long r = user_path(path_uva, path);
+
+    if (r < 0)
+        return r;
+    r = vfs_lookup(path, curproc->cwd, &vn);
+    return r < 0 ? r : vfs_chattr(vn, -1, uid, gid);
+}
+
+static long sys_chmod_path(uint64_t path_uva, uint64_t mode)
+{
+    char path[PATH_MAX];
+    struct vnode *vn;
+    long r = user_path(path_uva, path);
+
+    if (r < 0)
+        return r;
+    r = vfs_lookup(path, curproc->cwd, &vn);
+    return r < 0 ? r : vfs_chattr(vn, (int32_t)(mode & 07777), -1, -1);
+}
+
+static long sys_sethostname(uint64_t name_uva, uint64_t len)
+{
+    char tmp[65];
+
+    if (curproc->uid != 0)
+        return -EPERM;
+    if (len == 0 || len > 64)
+        return -EINVAL;
+    if (copy_from_user(tmp, name_uva, len) < 0)
+        return -EFAULT;
+    tmp[len] = 0;
+    memcpy(hostname, tmp, len + 1);
+    return 0;
+}
+
+#define LINUX_REBOOT_MAGIC1 0xfee1dead
+#define LINUX_REBOOT_MAGIC2 672274793
+
+static long sys_reboot(uint64_t magic1, uint64_t magic2, uint64_t cmd)
+{
+    if (curproc->uid != 0)
+        return -EPERM;
+    if ((uint32_t)magic1 != LINUX_REBOOT_MAGIC1 || (uint32_t)magic2 != LINUX_REBOOT_MAGIC2)
+        return -EINVAL;
+    switch ((uint32_t)cmd) {
+    case 0x01234567: power_restart();
+    case 0x4321FEDC: power_off();
+    case 0xCDEF0123: power_halt();
+    default:         return -EINVAL;
+    }
+}
+
+static long sys_netset(uint64_t uva)
+{
+    struct netinfo ni;
+
+    if (curproc->uid != 0)
+        return -EPERM;
+    if (copy_from_user(&ni, uva, sizeof(ni)) < 0)
+        return -EFAULT;
+    return net_set_static(ni.ip, ni.mask, ni.gw, ni.dns);
+}
+
+static long sys_setkeymap(uint64_t name_uva)
+{
+    char name[16];
+    long r;
+
+    if (curproc->uid != 0)
+        return -EPERM;
+    r = copy_str_from_user(name, name_uva, sizeof(name));
+    return r < 0 ? r : kbd_set_map(name);
 }
 
 long sys_socket(uint64_t, uint64_t, uint64_t);
@@ -710,8 +829,31 @@ void syscall_dispatch(struct trapframe *tf)
     case SYS_rmdir:       r = sys_rmdir(tf->rdi); break;
     case SYS_unlink:      r = sys_unlink(tf->rdi); break;
     case SYS_statfs:      r = sys_statfs(tf->rdi, tf->rsi); break;
-    case SYS_chmod:
-    case SYS_fchmod:
+    case SYS_chmod:       r = sys_chmod_path(tf->rdi, tf->rsi); break;
+    case SYS_fchmod: {
+        struct file *ff = fd_get((int)tf->rdi);
+
+        r = ff ? vfs_chattr(ff->vn, (int32_t)(tf->rsi & 07777), -1, -1) : -EBADF;
+        break;
+    }
+    case SYS_chown:
+    case SYS_lchown:      r = sys_chown_path(tf->rdi, (int32_t)tf->rsi, (int32_t)tf->rdx); break;
+    case SYS_fchown: {
+        struct file *ff = fd_get((int)tf->rdi);
+
+        r = ff ? vfs_chattr(ff->vn, -1, (int32_t)tf->rsi, (int32_t)tf->rdx) : -EBADF;
+        break;
+    }
+    case SYS_getuid:
+    case SYS_geteuid:     r = curproc->uid; break;
+    case SYS_getgid:
+    case SYS_getegid:     r = curproc->gid; break;
+    case SYS_setuid:      r = sys_setuid_gid(tf->rdi, 0); break;
+    case SYS_setgid:      r = sys_setuid_gid(tf->rdi, 1); break;
+    case SYS_sethostname: r = sys_sethostname(tf->rdi, tf->rsi); break;
+    case SYS_reboot:      r = sys_reboot(tf->rdi, tf->rsi, tf->rdx); break;
+    case SYS_netset:      r = sys_netset(tf->rdi); break;
+    case SYS_setkeymap:   r = sys_setkeymap(tf->rdi); break;
     case SYS_fsync:
     case SYS_sync:        r = blk_sync_all(); break;
     case SYS_umask:       r = 022; break;

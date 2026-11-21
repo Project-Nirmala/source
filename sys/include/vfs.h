@@ -7,6 +7,11 @@ struct file;
 struct blkdev;
 
 #define NAME_MAX 255
+
+#define VP_R 4
+#define VP_W 2
+#define VP_X 1
+#define M_SVTX 01000
 #define PATH_MAX 1024
 
 enum vtype { VREG = 1, VDIR, VCHR, VPIPE, VBLK };
@@ -34,6 +39,7 @@ struct fsops {
     int (*truncate)(struct vnode *vn, uint64_t size);
     int (*statfs)(struct vnode *vn, struct vstatfs *out);
     int (*settime)(struct vnode *vn, uint32_t mtime);
+    int (*setattr)(struct vnode *vn, uint32_t mode, uint32_t uid, uint32_t gid);
 };
 
 struct vnode {
@@ -45,6 +51,7 @@ struct vnode {
     void               *priv;
     struct vnode       *parent;
     uint32_t            mode;
+    uint32_t            uid, gid;
     uint32_t            nlink;
     uint32_t            mtime;
     int                 refs;
@@ -65,6 +72,8 @@ int           vfs_rename(const char *from, const char *to, struct vnode *cwd);
 int           vfs_truncate(struct vnode *vn, uint64_t size);
 int           vfs_statfs(struct vnode *vn, struct vstatfs *out);
 int           vfs_utime(struct vnode *vn, uint32_t mtime);
+int           vfs_perm(const struct vnode *vn, int want);
+int           vfs_chattr(struct vnode *vn, int32_t mode, int64_t uid, int64_t gid);
 long          vnode_read(struct vnode *vn, uint64_t off, void *buf, size_t n);
 long          vnode_write(struct vnode *vn, uint64_t off, const void *buf, size_t n);
 long          vnode_ioctl(struct vnode *vn, uint64_t req, uint64_t arg);

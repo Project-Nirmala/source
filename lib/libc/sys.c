@@ -19,6 +19,8 @@
 #include <fcntl.h>
 #include <sys/sysinfo.h>
 #include <sys/syscall.h>
+#include <netcfg.h>
+#include <sys/reboot.h>
 
 int errno;
 
@@ -309,6 +311,88 @@ int gettimeofday(struct timeval *tv, void *tz)
 int utime(const char *path, const struct utimbuf *times)
 {
     return (int)fix(raw(SYS_utime, (long)path, (long)times, 0));
+}
+
+uid_t getuid(void) { return (uid_t)raw(SYS_getuid, 0, 0, 0); }
+uid_t geteuid(void) { return (uid_t)raw(SYS_geteuid, 0, 0, 0); }
+gid_t getgid(void) { return (gid_t)raw(SYS_getgid, 0, 0, 0); }
+gid_t getegid(void) { return (gid_t)raw(SYS_getegid, 0, 0, 0); }
+
+int setuid(uid_t uid)
+{
+    return (int)fix(raw(SYS_setuid, (long)uid, 0, 0));
+}
+
+int setgid(gid_t gid)
+{
+    return (int)fix(raw(SYS_setgid, (long)gid, 0, 0));
+}
+
+int chown(const char *path, uid_t uid, gid_t gid)
+{
+    return (int)fix(raw(SYS_chown, (long)path, (long)uid, (long)gid));
+}
+
+int sethostname(const char *name, size_t size)
+{
+    return (int)fix(raw(SYS_sethostname, (long)name, (long)size, 0));
+}
+
+int gethostname(char *name, size_t size)
+{
+    struct utsname u;
+    size_t n;
+
+    if (uname(&u) < 0)
+        return -1;
+    n = strlen(u.nodename);
+    if (n >= size) {
+        errno = ENAMETOOLONG;
+        return -1;
+    }
+    memcpy(name, u.nodename, n + 1);
+    return 0;
+}
+
+int setkeymap(const char *name)
+{
+    return (int)fix(raw(SYS_setkeymap, (long)name, 0, 0));
+}
+
+int reboot(int cmd)
+{
+    sync();
+    return (int)fix(raw(SYS_reboot, 0xfee1dead, 672274793, cmd));
+}
+
+int netset(const struct netcfg *cfg)
+{
+    return (int)fix(raw(SYS_netset, (long)cfg, 0, 0));
+}
+
+int ip_parse(const char *text, unsigned int *out)
+{
+    unsigned int v = 0;
+    int part, digits;
+
+    for (part = 0; part < 4; part++) {
+        unsigned n = 0;
+
+        digits = 0;
+        while (*text >= '0' && *text <= '9' && digits < 4) {
+            n = n * 10 + (unsigned)(*text++ - '0');
+            digits++;
+        }
+        if (!digits || n > 255)
+            return -1;
+        v = v << 8 | n;
+        if (part < 3 && *text++ != '.')
+            return -1;
+    }
+    if (*text)
+        return -1;
+    *out = v;
+    return 0;
 }
 
 int chmod(const char *path, mode_t mode)

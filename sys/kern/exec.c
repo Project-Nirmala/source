@@ -102,7 +102,7 @@ int exec_prepare(const char *path, struct vnode *cwd, char *const argv[],
     r = vfs_lookup(path, cwd, &vn);
     if (r < 0)
         return r;
-    if (vn->type != VREG)
+    if (vn->type != VREG || vfs_perm(vn, VP_X) < 0)
         return -EACCES;
     pml4 = vmm_new_user();
     if (!pml4)

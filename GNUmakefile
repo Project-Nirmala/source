@@ -99,7 +99,7 @@ LIBC_A   := $(BUILD)/lib/libc/libc.a
 CRT0     := $(BUILD)/lib/libc/crt0.o
 MPROGS   := bin/nirmake bin/nirld bin/nircc
 CPROGS   := bin/install
-ALIASES  := bin/make:bin/nirmake bin/ld:bin/nirld bin/[:bin/test
+ALIASES  := bin/make:bin/nirmake bin/ld:bin/nirld bin/[:bin/test bin/poweroff:bin/reboot bin/halt:bin/reboot
 ROOTBINS := $(addprefix $(BUILD)/rootfs/,$(PROGS) $(MPROGS) $(CPROGS)) $(BUILD)/rootfs/bin/cc
 ROOTETC  := $(patsubst rootfs/%,$(BUILD)/rootfs/%,$(shell find rootfs -type f)) $(BUILD)/rootfs/usr/share/doc/LICENSE \
             $(BUILD)/rootfs/usr/lib/crt0.o $(BUILD)/rootfs/usr/lib/libc.a \
@@ -267,6 +267,7 @@ $(LIMINE_EFI): | limine
 $(INITRD): $(ROOTBINS) $(ROOTETC) $(LIMINE_EFI)
 	$(LOG) "TAR" "$@"
 	@for a in $(ALIASES); do cp -f "$(BUILD)/rootfs/$${a#*:}" "$(BUILD)/rootfs/$${a%%:*}"; done
+	@chmod 600 "$(BUILD)/rootfs/etc/passwd" 2>/dev/null || true
 	$(Q)tar --format=ustar --sort=name --owner=0 --group=0 --numeric-owner \
 		-cf $@ -C $(BUILD)/rootfs $(sort $(foreach f,$(PROGS) $(MPROGS) $(patsubst rootfs/%,%,$(shell find rootfs -type f)),$(firstword $(subst /, ,$(f)))))
 

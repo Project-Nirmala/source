@@ -3,6 +3,7 @@
 #include <kern.h>
 #include <mm.h>
 #include <cpu.h>
+#include <proc.h>
 #include <wallclock.h>
 #include <sys/errno.h>
 
@@ -50,6 +51,8 @@ static struct vnode *vnode_for(uint32_t ino, struct vnode *parent, const char *n
     v->priv = (void *)(uintptr_t)ino;
     v->size = ip.size;
     v->mode = ip.mode;
+    v->uid = ip.uid;
+    v->gid = ip.gid;
     v->nlink = ip.nlink;
     v->mtime = ip.mtime;
     v->parent = parent;
@@ -145,6 +148,15 @@ static int lemon_create(struct vnode *dir, const char *name, uint32_t mode, int 
     if (r < 0) {
         lemon_ifree(&L, ino);
         return r;
+    }
+    if (curproc) {
+        struct lemon_inode nip;
+
+        if (lemon_iget(&L, ino, &nip) == 0) {
+            nip.uid = curproc->uid;
+            nip.gid = curproc->gid;
+            lemon_iput(&L, ino, &nip);
+        }
     }
     v = vnode_for(ino, dir, name);
     if (!v)
@@ -284,6 +296,31 @@ static int lemon_settime(struct vnode *vn, uint32_t mtime)
     return r;
 }
 
+static int lemon_setattr(struct vnode *vn, uint32_t mode, uint32_t uid, uint32_t gid)
+{
+    struct lemon_inode ip;
+    int r;
+
+    if (!vn->priv)
+        return -ENOENT;
+    r = lemon_iget(&L, ino_of(vn), &ip);
+    if (r < 0)
+        return r;
+    if (mode != (uint32_t)-1)
+        ip.mode = (uint16_t)((ip.mode & LEMON_IFMT) | (mode & 07777));
+    if (uid != (uint32_t)-1)
+        ip.uid = uid;
+    if (gid != (uint32_t)-1)
+        ip.gid = gid;
+    r = lemon_iput(&L, ino_of(vn), &ip);
+    if (r < 0)
+        return r;
+    vn->mode = ip.mode;
+    vn->uid = ip.uid;
+    vn->gid = ip.gid;
+    return 0;
+}
+
 static const struct fsops lemon_fsops = {
     .lookup = lemon_lookup,
     .create = lemon_create,
@@ -293,6 +330,7 @@ static const struct fsops lemon_fsops = {
     .truncate = lemon_truncate_vn,
     .statfs = lemon_statfs,
     .settime = lemon_settime,
+    .setattr = lemon_setattr,
 };
 
 int lemonfs_probe(struct blkdev *dev)

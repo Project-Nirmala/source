@@ -627,6 +627,21 @@ int net_up(void)
     return 0;
 }
 
+int net_set_static(uint32_t ip, uint32_t mask, uint32_t gw, uint32_t dns)
+{
+    if (!nic)
+        return -ENODEV;
+    if (!ip || !mask)
+        return -EINVAL;
+    my_ip = ip;
+    my_mask = mask;
+    my_gw = gw;
+    my_dns = dns;
+    configured = 1;
+    kprintf("net: static ip %u.%u.%u.%u\n", my_ip >> 24, (my_ip >> 16) & 255, (my_ip >> 8) & 255, my_ip & 255);
+    return 0;
+}
+
 void net_info(struct netinfo *o)
 {
     o->ip = my_ip;

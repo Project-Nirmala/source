@@ -19,6 +19,7 @@ void net_init(void);
 void net_poll(void);
 int  net_up(void);
 void net_info(struct netinfo *out);
+int  net_set_static(uint32_t ip, uint32_t mask, uint32_t gw, uint32_t dns);
 
 struct sock *sock_new(int type);
 void         sock_free(struct sock *s);

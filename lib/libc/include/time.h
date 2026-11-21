@@ -26,6 +26,8 @@ int        clock_gettime(int clock, struct timespec *ts);
 int        gettimeofday(struct timeval *tv, void *tz);
 struct tm *gmtime(const time_t *t);
 struct tm *gmtime_r(const time_t *t, struct tm *out);
+struct tm *localtime(const time_t *t);
+struct tm *localtime_r(const time_t *t, struct tm *out);
 time_t     timegm(struct tm *tm);
 
 #endif

@@ -29,6 +29,7 @@ struct proc {
     char        name[16];
     void       *wchan;
     int         pending_sig;
+    uint32_t    uid, gid;
     struct file *fds[NOFILE];
     struct vnode *cwd;
     uint8_t     fpu_raw[FPU_AREA_SIZE + 16];
@@ -59,6 +60,7 @@ void proc_sleep_ticks(uint64_t ticks);
 void proc_wait_on(void *chan);
 void proc_wakeup(void *chan);
 int  proc_signal(int pid, int sig);
+int  proc_owner(int pid, uint32_t *uid);
 int  proc_count(void);
 static inline void *proc_fpu(struct proc *p) { return fpu_align(p->fpu_raw); }
 void proc_yield(void);

@@ -1,4 +1,5 @@
 #include <vfs.h>
+#include <proc.h>
 #include <blk.h>
 #include <cmdline.h>
 #include <kern.h>
@@ -116,10 +117,76 @@ struct vnode *vfs_root(void)
     return root_vnode;
 }
 
+static uint32_t cred_uid(void)
+{
+    return curproc ? curproc->uid : 0;
+}
+
+static uint32_t cred_gid(void)
+{
+    return curproc ? curproc->gid : 0;
+}
+
+/*
+ * Classic owner/group/other check. Nodes that carry no mode (pipes, the
+ * console) get the same defaults stat() reports, except that character
+ * devices stay open to everyone. uid 0 passes everything, including files
+ * that lack an execute bit (older nirld output was created without one).
+ */
+int vfs_perm(const struct vnode *vn, int want)
+{
+    uint32_t mode = vn->mode & 0777, uid = cred_uid(), gid = cred_gid();
+    int have;
+
+    if (!vn->mode) {
+        if (vn->type == VCHR || vn->type == VPIPE)
+            return 0;
+        mode = vn->type == VDIR ? 0755 : vn->type == VBLK ? 0660 : 0644;
+    }
+    if (uid == 0)
+        return 0;
+    if (uid == vn->uid)
+        have = (int)((mode >> 6) & 7);
+    else if (gid == vn->gid)
+        have = (int)((mode >> 3) & 7);
+    else
+        have = (int)(mode & 7);
+    return (have & want) == want ? 0 : -EACCES;
+}
+
+/* May the caller remove or rename 'victim' out of 'dir'? (sticky directories) */
+static int sticky_ok(const struct vnode *dir, const struct vnode *victim)
+{
+    uint32_t uid = cred_uid();
+
+    if (!(dir->mode & M_SVTX) || uid == 0 || uid == dir->uid || (victim && uid == victim->uid))
+        return 0;
+    return -EPERM;
+}
+
+int vfs_chattr(struct vnode *vn, int32_t mode, int64_t uid, int64_t gid)
+{
+    uint32_t cu = cred_uid();
+
+    if (!vn->fs || !vn->fs->setattr)
+        return -EPERM;
+    if (cu != 0) {
+        if (uid != -1 && (uint32_t)uid != vn->uid)
+            return -EPERM;
+        if (cu != vn->uid)
+            return -EPERM;
+        if (gid != -1 && (uint32_t)gid != cred_gid())
+            return -EPERM;
+    }
+    return vn->fs->setattr(vn, (uint32_t)mode, (uint32_t)uid, (uint32_t)gid);
+}
+
 static int step(struct vnode *dir, const char *name, struct vnode **out)
 {
     if (dir->type != VDIR)
         return -ENOTDIR;
+    if (vfs_perm(dir, VP_X) < 0)
+        return -EACCES;
     if (!strcmp(name, ".")) {
         *out = dir;
         return 0;
@@ -229,6 +296,8 @@ int vfs_create(const char *path, struct vnode *cwd, uint32_t mode, int excl, str
     }
     if (r != -ENOENT)
         return r;
+    if (vfs_perm(dir, VP_W | VP_X) < 0)
+        return -EACCES;
     return dir->fs->create(dir, name, mode, 0, out);
 }
 
@@ -242,12 +311,14 @@ int vfs_mkdir(const char *path, struct vnode *cwd, uint32_t mode)
         return -EEXIST;
     if (r < 0)
         return r;
+    if (vfs_perm(dir, VP_W | VP_X) < 0)
+        return -EACCES;
     return dir->fs->create(dir, name, mode, 1, &v);
 }
 
 static int remove_path(const char *path, struct vnode *cwd, int want_dir)
 {
-    struct vnode *dir;
+    struct vnode *dir, *victim;
     char name[NAME_MAX + 1];
     int r = lookup_parent(path, cwd, &dir, name);
 
@@ -255,6 +326,10 @@ static int remove_path(const char *path, struct vnode *cwd, int want_dir)
         return -EBUSY;
     if (r < 0)
         return r;
+    if (vfs_perm(dir, VP_W | VP_X) < 0)
+        return -EACCES;
+    if (dir->fs->lookup(dir, name, &victim) == 0 && sticky_ok(dir, victim) < 0)
+        return -EPERM;
     return dir->fs->remove(dir, name, want_dir);
 }
 
@@ -288,6 +363,10 @@ int vfs_rename(const char *from, const char *to, struct vnode *cwd)
     r = od->fs->lookup(od, on, &src);
     if (r < 0)
         return r;
+    if (vfs_perm(od, VP_W | VP_X) < 0 || vfs_perm(nd, VP_W | VP_X) < 0)
+        return -EACCES;
+    if (sticky_ok(od, src) < 0)
+        return -EPERM;
     if (src->type == VDIR)
         for (t = nd; t; t = t->parent)
             if (t == src)

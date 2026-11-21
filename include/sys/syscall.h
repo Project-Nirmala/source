@@ -51,6 +51,19 @@
 #define SYS_sendto      44
 #define SYS_recvfrom    45
 #define SYS_bind        49
+#define SYS_getuid      102
+#define SYS_getgid      104
+#define SYS_setuid      105
+#define SYS_setgid      106
+#define SYS_geteuid     107
+#define SYS_getegid     108
+#define SYS_chown       92
+#define SYS_fchown      93
+#define SYS_lchown      94
+#define SYS_sethostname 170
+#define SYS_reboot      169
 #define SYS_netinfo     400
+#define SYS_netset      401
+#define SYS_setkeymap   402
 
 #endif

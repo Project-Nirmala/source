@@ -121,7 +121,11 @@ long sys_bind(uint64_t fd, uint64_t addr_uva, uint64_t len)
     if (!s)
         return -EBADF;
     r = get_addr(addr_uva, len, &a, &p);
-    return r < 0 ? r : sock_bind(s, p);
+    if (r < 0)
+        return r;
+    if (p && p < 1024 && curproc->uid != 0)
+        return -EACCES;
+    return sock_bind(s, p);
 }
 
 long sys_sendto(uint64_t fd, uint64_t buf, uint64_t n, uint64_t flags, uint64_t addr_uva, uint64_t alen)

@@ -221,6 +221,8 @@ long proc_fork(const struct trapframe *tf)
     fpu_save(proc_fpu(par));
     memcpy(proc_fpu(c), proc_fpu(par), FPU_AREA_SIZE);
     c->cwd = par->cwd;
+    c->uid = par->uid;
+    c->gid = par->gid;
     c->brk_start = par->brk_start;
     c->brk = par->brk;
     memcpy(c->name, par->name, sizeof(c->name));
@@ -313,6 +315,16 @@ void proc_wakeup(void *chan)
             p->state = P_RUNNABLE;
         }
     }
+}
+
+int proc_owner(int pid, uint32_t *uid)
+{
+    struct proc *p = find_pid(pid);
+
+    if (!p || p->pid == 0 || p->state == P_ZOMBIE)
+        return -1;
+    *uid = p->uid;
+    return 0;
 }
 
 int proc_signal(int pid, int sig)

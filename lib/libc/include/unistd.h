@@ -37,5 +37,15 @@ int     truncate(const char *path, off_t len);
 int     ftruncate(int fd, off_t len);
 int     access(const char *path, int mode);
 void    sync(void);
+uid_t   getuid(void);
+uid_t   geteuid(void);
+gid_t   getgid(void);
+gid_t   getegid(void);
+int     setuid(uid_t uid);
+int     setgid(gid_t gid);
+int     chown(const char *path, uid_t uid, gid_t gid);
+int     gethostname(char *name, size_t size);
+int     sethostname(const char *name, size_t size);
+int     setkeymap(const char *name);
 
 #endif

@@ -49,7 +49,37 @@ static void motd(void)
 
 struct account {
     char *salt, *hash, *home, *shell;
+    unsigned uid, gid;
 };
+
+static unsigned number(const char *s)
+{
+    unsigned v = 0;
+
+    while (*s >= '0' && *s <= '9')
+        v = v * 10 + (unsigned)(*s++ - '0');
+    return v;
+}
+
+/* First line of a small settings file, or an empty string. */
+static void first_line(const char *path, char *out, size_t size)
+{
+    long n = 0;
+    int fd = open(path, O_RDONLY);
+    size_t i;
+
+    out[0] = 0;
+    if (fd < 0)
+        return;
+    n = read(fd, out, size - 1);
+    close(fd);
+    if (n < 0)
+        n = 0;
+    out[n] = 0;
+    for (i = 0; out[i] && out[i] != '\n'; i++)
+        ;
+    out[i] = 0;
+}
 
 static int lookup(const char *user, char *db, struct account *a)
 {
@@ -73,6 +103,8 @@ static int lookup(const char *user, char *db, struct account *a)
             a->salt = f[1];
             a->hash = f[2];
             a->home = f[5];
+            a->uid = number(f[3]);
+            a->gid = number(f[4]);
             a->shell = f[6];
             return 1;
         }
@@ -125,10 +157,15 @@ int main(void)
 
     for (;;) {
         char e_path[] = "PATH=/bin:/sbin", e_term[] = "TERM=linux", e_home[96], e_user[96], e_shell[96];
-        char *envp[6], *argv[2];
+        char e_lang[64], e_tz[64], loc[48], tz[48], host[65];
+        char *envp[8], *argv[2];
+        int ne = 0;
         char dbcopy[sizeof(db)];
 
-        say("nirmala login: ");
+        if (gethostname(host, sizeof(host)) < 0)
+            host[0] = 0;
+        say(host[0] ? host : "nirmala");
+        say(" login: ");
         if (readline(user, sizeof(user), 1) < 0)
             _exit(1);
         if (!user[0])
@@ -148,9 +185,27 @@ int main(void)
         kv(e_home, sizeof(e_home), "HOME=", a.home);
         kv(e_user, sizeof(e_user), "USER=", user);
         kv(e_shell, sizeof(e_shell), "SHELL=", a.shell);
-        envp[0] = e_path; envp[1] = e_home; envp[2] = e_user; envp[3] = e_shell; envp[4] = e_term; envp[5] = 0;
+        first_line("/etc/locale", loc, sizeof(loc));
+        first_line("/etc/timezone", tz, sizeof(tz));
+        envp[ne++] = e_path; envp[ne++] = e_home; envp[ne++] = e_user; envp[ne++] = e_shell; envp[ne++] = e_term;
+        if (loc[0]) {
+            kv(e_lang, sizeof(e_lang), "LANG=", loc);
+            envp[ne++] = e_lang;
+        }
+        if (tz[0]) {
+            kv(e_tz, sizeof(e_tz), "TZ=", tz);
+            envp[ne++] = e_tz;
+        }
+        envp[ne] = 0;
         argv[0] = "sh";
         argv[1] = 0;
+        /* Drop root before the shell starts: group first, then user, and never continue if either fails. */
+        if (a.uid != 0 || a.gid != 0) {
+            if (setgid(a.gid) < 0 || setuid(a.uid) < 0 || getuid() != a.uid || getgid() != a.gid) {
+                say("login: cannot drop privileges\n");
+                _exit(1);
+            }
+        }
         chdir(a.home);
         execve(a.shell, argv, envp);
         say("login: cannot start shell\n");

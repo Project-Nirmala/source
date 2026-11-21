@@ -226,7 +226,37 @@ static int write_file(struct lemon *l, const char *dirpath, const char *name, un
     return lemon_write(l, ino, 0, data, len) == (long)len ? 0 : -1;
 }
 
-int mkroot(int fd, uint64_t first, uint64_t nsect, const struct account *acc, unsigned nacc)
+static int write_line(struct lemon *l, const char *name, const char *value)
+{
+    char line[96];
+    int n = snprintf(line, sizeof(line), "%s\n", value);
+
+    if (n < 2 || (size_t)n >= sizeof(line))
+        return -1;
+    return write_file(l, "/etc", name, 0644, line, (size_t)n);
+}
+
+static int write_settings(struct lemon *l, const struct sysconfig *c)
+{
+    char net[96];
+
+    if (c->keymap[0] && write_line(l, "keymap", c->keymap) < 0)
+        return -1;
+    if (c->locale[0] && write_line(l, "locale", c->locale) < 0)
+        return -1;
+    if (c->timezone[0] && write_line(l, "timezone", c->timezone) < 0)
+        return -1;
+    if (c->hostname[0] && write_line(l, "hostname", c->hostname) < 0)
+        return -1;
+    if (c->net_static)
+        snprintf(net, sizeof(net), "static %s %s %s %s", c->ip, c->mask, c->gw, c->dns);
+    else
+        snprintf(net, sizeof(net), "dhcp");
+    return write_line(l, "network", net);
+}
+
+int mkroot(int fd, uint64_t first, uint64_t nsect, const struct account *acc, unsigned nacc,
+           const struct sysconfig *cfg)
 {
     struct udev *u = calloc(1, sizeof(*u));
     struct blkdev dev;
@@ -267,7 +297,7 @@ int mkroot(int fd, uint64_t first, uint64_t nsect, const struct account *acc, un
     }
     l.now = now_secs;
 
-    if (make_dir(&l, "/etc", 0755, 0, 0) < 0 || make_dir(&l, "/tmp", 0777, 0, 0) < 0 ||
+    if (make_dir(&l, "/etc", 0755, 0, 0) < 0 || make_dir(&l, "/tmp", 01777, 0, 0) < 0 ||
         make_dir(&l, "/root", 0700, 0, 0) < 0 || make_dir(&l, "/home", 0755, 0, 0) < 0) {
         dprintf(2, "install: cannot create the base directories\n");
         goto out;
@@ -280,13 +310,17 @@ int mkroot(int fd, uint64_t first, uint64_t nsect, const struct account *acc, un
             goto out;
         }
         dblen += (size_t)n;
-        if (strcmp(acc[i].home, "/root") && make_dir(&l, acc[i].home, 0755, acc[i].uid, acc[i].gid) < 0) {
+        if (strcmp(acc[i].home, "/root") && make_dir(&l, acc[i].home, 0700, acc[i].uid, acc[i].gid) < 0) {
             dprintf(2, "install: cannot create %s\n", acc[i].home);
             goto out;
         }
     }
-    if (write_file(&l, "/etc", "passwd", 0644, db, dblen) < 0) {
+    if (write_file(&l, "/etc", "passwd", 0600, db, dblen) < 0) {
         dprintf(2, "install: cannot write /etc/passwd\n");
+        goto out;
+    }
+    if (cfg && write_settings(&l, cfg) < 0) {
+        dprintf(2, "install: cannot write the system settings\n");
         goto out;
     }
 

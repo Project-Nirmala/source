@@ -43,12 +43,13 @@ int main(void)
 {
     const uint64_t first = 2048 + 204800, nsect = 131072 - 33;
     struct account acc[2];
+    struct sysconfig cfg;
     struct fdev f;
     struct blkdev dev;
     struct lemon l;
     struct lemon_inode ip;
     char db[1024];
-    uint32_t ino, home;
+    uint32_t ino, home, etc;
     int fd = open("/tmp/nirmala_mkroot.img", O_RDWR | O_CREAT | O_TRUNC, 0600);
     uint8_t *seen;
 
@@ -58,7 +59,11 @@ int main(void)
     strcpy(acc[0].name, "root"); strcpy(acc[0].password, "rootpw"); strcpy(acc[0].home, "/root"); strcpy(acc[0].shell, "/bin/sh");
     strcpy(acc[1].name, "alice"); strcpy(acc[1].password, "s3cret pass"); strcpy(acc[1].home, "/home/alice");
     strcpy(acc[1].shell, "/bin/sh"); acc[1].uid = acc[1].gid = 1000;
-    CHECK(mkroot(fd, first, nsect, acc, 2) == 0);
+    memset(&cfg, 0, sizeof(cfg));
+    strcpy(cfg.keymap, "dvorak"); strcpy(cfg.locale, "id_ID.UTF-8"); strcpy(cfg.timezone, "Asia/Makassar");
+    strcpy(cfg.hostname, "bali1"); cfg.net_static = 1;
+    strcpy(cfg.ip, "10.0.2.50"); strcpy(cfg.mask, "255.255.255.0"); strcpy(cfg.gw, "10.0.2.2"); strcpy(cfg.dns, "10.0.2.3");
+    CHECK(mkroot(fd, first, nsect, acc, 2, &cfg) == 0);
 
     f.fd = fd; f.base = first * 512;
     dev.nblocks = (uint32_t)(nsect / 8); dev.priv = &f; dev.get = f_get; dev.put = f_put;
@@ -67,8 +72,25 @@ int main(void)
     seen = malloc(dev.nblocks);
     CHECK(lemon_check(&l, seen) == 0);
     free(seen);
-    CHECK(lemon_dir_lookup(&l, LEMON_ROOT_INO, "etc", &ino, NULL) == 0);
-    CHECK(lemon_dir_lookup(&l, ino, "passwd", &ino, NULL) == 0);
+    CHECK(lemon_dir_lookup(&l, LEMON_ROOT_INO, "etc", &etc, NULL) == 0);
+    {
+        static const char *const names[] = { "keymap", "locale", "timezone", "hostname", "network" };
+        static const char *const want[] = { "dvorak\n", "id_ID.UTF-8\n", "Asia/Makassar\n", "bali1\n",
+                                            "static 10.0.2.50 255.255.255.0 10.0.2.2 10.0.2.3\n" };
+        unsigned k;
+
+        for (k = 0; k < 5; k++) {
+            char got[128];
+            long n;
+
+            CHECK(lemon_dir_lookup(&l, etc, names[k], &ino, NULL) == 0);
+            memset(got, 0, sizeof(got));
+            n = lemon_read(&l, ino, 0, got, sizeof(got) - 1);
+            CHECK(n == (long)strlen(want[k]) && !strcmp(got, want[k]));
+        }
+    }
+    CHECK(lemon_dir_lookup(&l, etc, "passwd", &ino, NULL) == 0);
+    CHECK(lemon_iget(&l, ino, &ip) == 0 && (ip.mode & 07777) == 0600 && ip.uid == 0);
     memset(db, 0, sizeof(db));
     CHECK(lemon_read(&l, ino, 0, db, sizeof(db) - 1) > 0);
     printf("%s", db);
@@ -85,10 +107,11 @@ int main(void)
     CHECK(lemon_dir_lookup(&l, LEMON_ROOT_INO, "home", &home, NULL) == 0);
     CHECK(lemon_dir_lookup(&l, home, "alice", &ino, NULL) == 0);
     CHECK(lemon_iget(&l, ino, &ip) == 0);
-    CHECK((ip.mode & LEMON_IFMT) == LEMON_IFDIR && ip.uid == 1000 && ip.gid == 1000);
+    CHECK((ip.mode & LEMON_IFMT) == LEMON_IFDIR && ip.uid == 1000 && ip.gid == 1000 && (ip.mode & 07777) == 0700);
     CHECK(lemon_dir_lookup(&l, LEMON_ROOT_INO, "root", &ino, NULL) == 0);
     CHECK(lemon_iget(&l, ino, &ip) == 0 && (ip.mode & 07777) == 0700);
     CHECK(lemon_dir_lookup(&l, LEMON_ROOT_INO, "tmp", &ino, NULL) == 0);
+    CHECK(lemon_iget(&l, ino, &ip) == 0 && (ip.mode & 07777) == 01777);
     close(fd);
     unlink("/tmp/nirmala_mkroot.img");
     printf("mkroot_test: ok (%u blocks)\n", dev.nblocks);

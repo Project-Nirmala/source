@@ -6,6 +6,9 @@
 #include <sys/ioctl.h>
 #include <sys/blkio.h>
 #include <diskfmt.h>
+#include <tz.h>
+#include <netcfg.h>
+#include <sys/reboot.h>
 #include "engine.h"
 
 const char *const inst_step_names[INST_STEPS] = {
@@ -14,9 +17,83 @@ const char *const inst_step_names[INST_STEPS] = {
     "Installing the boot loader",
     "Installing the kernel",
     "Installing the system image",
-    "Creating the root filesystem and accounts",
+    "Creating the root filesystem, accounts and settings",
     "Finishing",
 };
+
+static int ip_parse_ok(const char *s, unsigned int *v)
+{
+    return ip_parse(s, v) == 0;
+}
+
+const char *const inst_keymaps[] = { "us", "dvorak", "colemak" };
+const int inst_nkeymaps = (int)(sizeof(inst_keymaps) / sizeof(inst_keymaps[0]));
+const char *const inst_locales[] = { "en_US.UTF-8", "id_ID.UTF-8", "C" };
+const int inst_nlocales = (int)(sizeof(inst_locales) / sizeof(inst_locales[0]));
+
+static int in_list(const char *const *list, int n, const char *s)
+{
+    int i;
+
+    for (i = 0; i < n; i++)
+        if (!strcmp(list[i], s))
+            return 1;
+    return 0;
+}
+
+void inst_config_defaults(struct sysconfig *cfg)
+{
+    memset(cfg, 0, sizeof(*cfg));
+    snprintf(cfg->keymap, sizeof(cfg->keymap), "us");
+    snprintf(cfg->locale, sizeof(cfg->locale), "en_US.UTF-8");
+    snprintf(cfg->timezone, sizeof(cfg->timezone), "UTC");
+    snprintf(cfg->hostname, sizeof(cfg->hostname), "nirmala");
+}
+
+/* RFC 1123 label: 1-31 of a-z, 0-9 and '-', not starting or ending with '-'. */
+int inst_valid_hostname(const char *s)
+{
+    size_t i, n = strlen(s);
+
+    if (n == 0 || n > 31 || s[0] == '-' || s[n - 1] == '-')
+        return 0;
+    for (i = 0; i < n; i++)
+        if (!(s[i] >= 'a' && s[i] <= 'z') && !(s[i] >= '0' && s[i] <= '9') && s[i] != '-')
+            return 0;
+    return 1;
+}
+
+int inst_valid_ipv4(const char *s)
+{
+    unsigned int v;
+
+    return ip_parse_ok(s, &v);
+}
+
+int inst_config_check(const struct sysconfig *c, char *err, size_t errsz)
+{
+    unsigned int v;
+
+    if (!in_list(inst_keymaps, inst_nkeymaps, c->keymap))
+        snprintf(err, errsz, "Unknown keyboard layout: %s.", c->keymap);
+    else if (!in_list(inst_locales, inst_nlocales, c->locale))
+        snprintf(err, errsz, "Unknown locale: %s.", c->locale);
+    else if (tz_find(c->timezone) < 0)
+        snprintf(err, errsz, "Unknown time zone: %s.", c->timezone);
+    else if (!inst_valid_hostname(c->hostname))
+        snprintf(err, errsz, "Invalid hostname: %s.", c->hostname);
+    else if (c->net_static && (!ip_parse_ok(c->ip, &v) || !ip_parse_ok(c->mask, &v) || !ip_parse_ok(c->gw, &v) ||
+                               !ip_parse_ok(c->dns, &v)))
+        snprintf(err, errsz, "The static network settings are incomplete or not valid IPv4 addresses.");
+    else
+        return 0;
+    return -1;
+}
+
+int inst_power(int off)
+{
+    return reboot(off ? RB_POWER_OFF : RB_AUTOBOOT);
+}
 
 static int readable(const char *path)
 {
@@ -150,13 +227,15 @@ static int put_file(struct fat32 *fs, const char *dest, const char *src_path)
 }
 
 int inst_run(const char *name, const struct inst_layout *lay, const struct account *acc, unsigned nacc,
-             inst_progress cb, void *ctx, char *err, size_t errsz)
+             const struct sysconfig *cfg, inst_progress cb, void *ctx, char *err, size_t errsz)
 {
     char path[24], guid[37], conf[512];
     struct gpt_part p[2];
     struct fat32 *fs;
     int fd, root = 0;
 
+    if (cfg && inst_config_check(cfg, err, errsz) < 0)
+        return -1;
     snprintf(path, sizeof(path), "/dev/%s", name);
     fd = open(path, O_RDWR);
     if (fd < 0) {
@@ -226,7 +305,7 @@ int inst_run(const char *name, const struct inst_layout *lay, const struct accou
     }
 
     cb(5, ctx);
-    if (mkroot(fd, p[1].first, lay->root_sectors, acc, nacc) < 0) {
+    if (mkroot(fd, p[1].first, lay->root_sectors, acc, nacc, cfg) < 0) {
         zero_range(fd, p[1].first, 1u << 20);
         snprintf(err, errsz, "Cannot create the root filesystem.");
         goto fail;

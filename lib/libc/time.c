@@ -1,4 +1,5 @@
 #include <time.h>
+#include <tz.h>
 
 static long days_from_civil(long y, unsigned m, unsigned d)
 {
@@ -52,6 +53,20 @@ struct tm *gmtime(const time_t *t)
     static struct tm result;
 
     return gmtime_r(t, &result);
+}
+
+struct tm *localtime_r(const time_t *t, struct tm *out)
+{
+    time_t shifted = *t + (time_t)tz_current()->minutes * 60;
+
+    return gmtime_r(&shifted, out);
+}
+
+struct tm *localtime(const time_t *t)
+{
+    static struct tm result;
+
+    return localtime_r(t, &result);
 }
 
 time_t timegm(struct tm *tm)

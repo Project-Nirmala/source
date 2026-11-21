@@ -3,7 +3,7 @@ include build/rules.mk
 
 .SUFFIXES:
 
-ALIASES = bin/make:bin/nirmake bin/ld:bin/nirld bin/[:bin/test
+ALIASES = bin/make:bin/nirmake bin/ld:bin/nirld bin/[:bin/test bin/poweroff:bin/reboot bin/halt:bin/reboot
 ROOTETC = $(ROOTCOPY) build/rootfs/usr/share/doc/LICENSE \
           build/rootfs/usr/lib/crt0.o build/rootfs/usr/lib/libc.a \
           build/rootfs/usr/share/examples/hello/hello.o build/rootfs/usr/include/.installed \
@@ -69,6 +69,7 @@ build/rootfs/usr/share/doc/LICENSE: LICENSE
 $(INITRD): $(ROOTBINS) $(ROOTETC)
 	$(LOG) "TAR" "$@"
 	@for a in $(ALIASES); do cp -f "$(BUILD)/rootfs/$${a#*:}" "$(BUILD)/rootfs/$${a%%:*}"; done
+	@chmod 600 "$(BUILD)/rootfs/etc/passwd" 2>/dev/null || true
 	$(Q)tar --format=ustar --sort=name --owner=0 --group=0 --numeric-owner \
 		-cf $@ -C $(BUILD)/rootfs $(TARDIRS)
 
