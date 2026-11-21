@@ -1,5 +1,6 @@
 #include <vfs.h>
 #include <blk.h>
+#include <cmdline.h>
 #include <kern.h>
 #include <sys/errno.h>
 
@@ -45,9 +46,30 @@ void vfs_init(const void *image, size_t size)
 {
     struct blkdrv *vdrv = virtio_blk_probe();
     struct blkdrv *sdrv = ahci_probe();
-    struct blkdrv *drv = vdrv ? vdrv : sdrv;
+    struct blkdrv *drv = NULL, *rparent = NULL;
     struct blkdev *dev = NULL;
+    uint64_t rstart = 0, rnsect = 0;
+    const char *rname = NULL;
+    char spec[96];
     bool persistent = false, fresh = false;
+
+    devfs_add_blob("initrd", image, size);
+    devfs_init();
+    if (!cmdline_value("root", spec, sizeof(spec)))
+        spec[0] = 0;
+    if (!strcmp(spec, "auto")) {
+        rparent = vdrv ? vdrv : sdrv;
+        if (rparent) {
+            rstart = 0;
+            rnsect = rparent->nsectors;
+            drv = rparent;
+        }
+    } else if (spec[0] && strcmp(spec, "ram") && strcmp(spec, "live")) {
+        if (devfs_resolve_root(spec, &rparent, &rstart, &rnsect, &rname))
+            drv = devfs_part_drv(rparent, rstart, rnsect, rname);
+        else
+            kprintf("root=%s not found, using a RAM disk\n", spec);
+    }
 
     if (drv) {
         dev = blkcache_create(drv, DISK_CACHE_BUFS);
@@ -76,16 +98,15 @@ void vfs_init(const void *image, size_t size)
     if (persistent) {
         int bad = fresh ? 0 : lemonfs_check();
 
-        kprintf("[ok] disk: %s %lu MiB, lemonfs %s\n", drv->name,
+        blk_set_root(rparent, rstart, rnsect);
+        kprintf("[ok] root: %s %lu MiB, lemonfs %s\n", drv->name,
                 (uint64_t)drv->nblocks * (LEMON_BSIZE / 1024) / 1024, fresh ? "created" : "mounted");
         if (bad)
             kprintf("lemonfs: %d consistency problems found (not repaired)\n", bad);
-    } else if (!drv) {
-        kprintf("[ok] disk: none, volatile RAM disk\n");
+    } else {
+        kprintf("[ok] root: volatile RAM disk\n");
     }
-    if (persistent)
-        blk_set_root(drv);
-    devfs_init();
+    devfs_attach(root_vnode);
     tarfs_extract(image, size);
     vfs_mkdir("/dev", root_vnode, 0755);
 }

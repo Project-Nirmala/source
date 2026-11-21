@@ -11,6 +11,8 @@
 #include <sys/version.h>
 #include <fpu.h>
 #include <wallclock.h>
+#include <cmdline.h>
+#include <blk.h>
 
 #define HZ 100
 
@@ -40,6 +42,16 @@ static volatile struct limine_module_request module_req = {
 __attribute__((used, section(".limine_requests")))
 static volatile struct limine_framebuffer_request framebuffer_req = {
     .id = LIMINE_FRAMEBUFFER_REQUEST_ID, .revision = 0, .response = 0
+};
+
+__attribute__((used, section(".limine_requests")))
+static volatile struct limine_executable_cmdline_request cmdline_req = {
+    .id = LIMINE_EXECUTABLE_CMDLINE_REQUEST_ID, .revision = 0, .response = 0
+};
+
+__attribute__((used, section(".limine_requests")))
+static volatile struct limine_executable_file_request execfile_req = {
+    .id = LIMINE_EXECUTABLE_FILE_REQUEST_ID, .revision = 0, .response = 0
 };
 
 __attribute__((used, section(".limine_requests_start")))
@@ -127,11 +139,23 @@ void kmain(void)
 
     if (!module_req.response || module_req.response->module_count < 1)
         panic("no initrd module provided by the bootloader");
+    if (cmdline_req.response && cmdline_req.response->cmdline)
+        cmdline_set(cmdline_req.response->cmdline);
+    devfs_add_blob("cmdline", cmdline_get(), strlen(cmdline_get()));
+    if (execfile_req.response && execfile_req.response->executable_file)
+        devfs_add_blob("kernel", execfile_req.response->executable_file->address,
+                       execfile_req.response->executable_file->size);
     vfs_init(module_req.response->modules[0]->address, module_req.response->modules[0]->size);
     kprintf("[ok] vfs: initrd %lu bytes\n", module_req.response->modules[0]->size);
 
-    if (!proc_create_exec("/sbin/init", init_argv, init_env))
-        panic("cannot start /sbin/init");
+    {
+        char init_path[64];
+
+        if (!cmdline_value("init", init_path, sizeof(init_path)))
+            memcpy(init_path, "/sbin/init", 11);
+        if (!proc_create_exec(init_path, init_argv, init_env))
+            panic("cannot start %s", init_path);
+    }
 
 #ifdef CONFIG_SELFTEST
     {

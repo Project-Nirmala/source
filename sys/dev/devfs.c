@@ -4,6 +4,7 @@
 #include <uaccess.h>
 #include <sys/errno.h>
 #include <sys/blkio.h>
+#include <cmdline.h>
 
 #define MAX_NODES 48
 #define MAX_PARTS 16
@@ -13,9 +14,26 @@ struct devnode {
     struct blkdrv *drv;
     uint64_t       start, nsect;
     bool           used, whole;
+    char           label[37];
+    char           uuid[37];
+};
+
+struct memfile {
+    struct vnode vn;
+    const void  *data;
+};
+
+struct partdrv {
+    struct blkdrv  drv;
+    struct blkdrv *parent;
+    uint64_t       start;
+    char           name[24];
+    bool           used;
 };
 
 static struct devnode nodes[MAX_NODES];
+static struct memfile memfiles[4];
+static struct partdrv partdrvs[2];
 static struct vnode   dev_dir;
 
 static uint32_t le32(const uint8_t *p)
@@ -47,7 +65,7 @@ static long dev_write(struct vnode *vn, uint64_t off, const void *buf, size_t n)
     struct devnode *d = vn->priv;
     uint64_t size = d->nsect * 512;
 
-    if (blk_is_root(d->drv))
+    if (blk_overlaps_root(d->drv, d->start, d->nsect))
         return -EBUSY;
     if (off >= size)
         return -ENOSPC;
@@ -86,7 +104,7 @@ static long dev_ioctl(struct vnode *vn, uint64_t req, uint64_t arg)
         v64 = d->start;
         return copy_to_user(arg, &v64, sizeof(v64)) < 0 ? -EFAULT : 0;
     case NIR_BLKROOT:
-        v = blk_is_root(d->drv);
+        v = blk_overlaps_root(d->drv, d->start, d->nsect);
         return copy_to_user(arg, &v, sizeof(v)) < 0 ? -EFAULT : 0;
     }
     return -ENOTTY;
@@ -127,7 +145,7 @@ static struct devnode *node_add(const char *name, struct blkdrv *drv, uint64_t s
     return NULL;
 }
 
-static void part_add(struct blkdrv *drv, unsigned num, uint64_t first, uint64_t count)
+static struct devnode *part_add(struct blkdrv *drv, unsigned num, uint64_t first, uint64_t count)
 {
     char name[24];
     size_t len = strlen(drv->name);
@@ -135,7 +153,7 @@ static void part_add(struct blkdrv *drv, unsigned num, uint64_t first, uint64_t 
     char digits[4];
 
     if (first >= drv->nsectors || count == 0 || first + count > drv->nsectors)
-        return;
+        return NULL;
     memcpy(name, drv->name, len);
     while (num) {
         digits[k++] = (char)('0' + num % 10);
@@ -144,7 +162,22 @@ static void part_add(struct blkdrv *drv, unsigned num, uint64_t first, uint64_t 
     while (k)
         name[len++] = digits[--k];
     name[len] = 0;
-    node_add(name, drv, first, count, false);
+    return node_add(name, drv, first, count, false);
+}
+
+static void gpt_uuid_str(const uint8_t *g, char *out)
+{
+    static const int order[16] = { 3, 2, 1, 0, 5, 4, 7, 6, 8, 9, 10, 11, 12, 13, 14, 15 };
+    static const char hex[] = "0123456789abcdef";
+    unsigned i, o = 0;
+
+    for (i = 0; i < 16; i++) {
+        if (i == 4 || i == 6 || i == 8 || i == 10)
+            out[o++] = '-';
+        out[o++] = hex[g[order[i]] >> 4];
+        out[o++] = hex[g[order[i]] & 15];
+    }
+    out[o] = 0;
 }
 
 static void scan_gpt(struct blkdrv *drv)
@@ -152,6 +185,7 @@ static void scan_gpt(struct blkdrv *drv)
     uint8_t hdr[512], ent[512];
     uint64_t ent_lba;
     uint32_t nent, esz, i, z;
+    struct devnode *d;
 
     if (blk_rw_bytes(drv, 512, hdr, 512, 0) < 0 || memcmp(hdr, "EFI PART", 8))
         return;
@@ -175,7 +209,13 @@ static void scan_gpt(struct blkdrv *drv)
         last = le64(ent + 40);
         if (last < first)
             continue;
-        part_add(drv, i + 1, first, last - first + 1);
+        d = part_add(drv, i + 1, first, last - first + 1);
+        if (d) {
+            gpt_uuid_str(ent + 16, d->uuid);
+            for (z = 0; z < 36 && ent[56 + 2 * z]; z++)
+                d->label[z] = (char)ent[56 + 2 * z];
+            d->label[z] = 0;
+        }
     }
 }
 
@@ -218,6 +258,11 @@ static int dev_lookup(struct vnode *dir, const char *name, struct vnode **out)
             *out = &nodes[i].vn;
             return 0;
         }
+    for (i = 0; i < 4; i++)
+        if (memfiles[i].data && !strcmp(memfiles[i].vn.name, name)) {
+            *out = &memfiles[i].vn;
+            return 0;
+        }
     return -ENOENT;
 }
 
@@ -232,6 +277,15 @@ static int dev_readdir(struct vnode *dir, uint64_t idx, char *name, struct vnode
         if (idx-- == 0) {
             memcpy(name, nodes[i].vn.name, strlen(nodes[i].vn.name) + 1);
             *ent = &nodes[i].vn;
+            return 1;
+        }
+    }
+    for (i = 0; i < 4; i++) {
+        if (!memfiles[i].data)
+            continue;
+        if (idx-- == 0) {
+            memcpy(name, memfiles[i].vn.name, strlen(memfiles[i].vn.name) + 1);
+            *ent = &memfiles[i].vn;
             return 1;
         }
     }
@@ -286,7 +340,6 @@ void devfs_init(void)
     dev_dir.type = VDIR;
     dev_dir.fs = &dev_fsops;
     dev_dir.ino = vfs_next_ino();
-    dev_dir.parent = vfs_root();
     dev_dir.mode = 040755;
     dev_dir.nlink = 2;
     memcpy(dev_dir.name, "dev", 4);
@@ -296,4 +349,148 @@ void devfs_init(void)
         node_add(drv->name, drv, 0, drv->nsectors, true);
         scan_disk(drv);
     }
+}
+
+void devfs_attach(struct vnode *root)
+{
+    unsigned i;
+
+    dev_dir.parent = root;
+    for (i = 0; i < 4; i++)
+        if (memfiles[i].data)
+            memfiles[i].vn.parent = &dev_dir;
+}
+
+static long mem_read(struct vnode *vn, uint64_t off, void *buf, size_t n)
+{
+    struct memfile *m = vn->priv;
+
+    if (off >= vn->size)
+        return 0;
+    if (n > vn->size - off)
+        n = (size_t)(vn->size - off);
+    memcpy(buf, (const uint8_t *)m->data + off, n);
+    return (long)n;
+}
+
+static const struct vnops mem_ops = {
+    .read = mem_read,
+};
+
+void devfs_add_blob(const char *name, const void *data, size_t size)
+{
+    unsigned i;
+
+    for (i = 0; i < 4; i++) {
+        struct memfile *m = &memfiles[i];
+
+        if (m->data)
+            continue;
+        memset(m, 0, sizeof(*m));
+        m->data = data;
+        m->vn.type = VREG;
+        m->vn.ops = &mem_ops;
+        m->vn.ino = vfs_next_ino();
+        m->vn.size = size;
+        m->vn.priv = m;
+        m->vn.mode = 0100444;
+        m->vn.nlink = 1;
+        memcpy(m->vn.name, name, strlen(name) + 1);
+        return;
+    }
+}
+
+static bool ieq(const char *a, const char *b)
+{
+    while (*a && *b) {
+        char x = *a >= 'A' && *a <= 'Z' ? (char)(*a + 32) : *a;
+        char y = *b >= 'A' && *b <= 'Z' ? (char)(*b + 32) : *b;
+
+        if (x != y)
+            return false;
+        a++;
+        b++;
+    }
+    return *a == *b;
+}
+
+bool devfs_resolve_root(const char *spec, struct blkdrv **parent, uint64_t *start, uint64_t *nsect,
+                        const char **name)
+{
+    unsigned i;
+
+    if (!memcmp(spec, "/dev/", 5))
+        spec += 5;
+    for (i = 0; i < MAX_NODES; i++) {
+        struct devnode *d = &nodes[i];
+        bool match;
+
+        if (!d->used)
+            continue;
+        if (!memcmp(spec, "PARTUUID=", 9))
+            match = !d->whole && ieq(d->uuid, spec + 9);
+        else if (!memcmp(spec, "PARTLABEL=", 10))
+            match = !d->whole && !strcmp(d->label, spec + 10);
+        else
+            match = !strcmp(d->vn.name, spec);
+        if (!match)
+            continue;
+        *parent = d->drv;
+        *start = d->start;
+        *nsect = d->nsect;
+        *name = d->vn.name;
+        return true;
+    }
+    return false;
+}
+
+static int part_read(void *priv, uint32_t blk, void *buf)
+{
+    struct partdrv *p = priv;
+
+    return blk_rw_bytes(p->parent, p->start * 512 + (uint64_t)blk * LEMON_BSIZE, buf, LEMON_BSIZE, 0);
+}
+
+static int part_write(void *priv, uint32_t blk, const void *buf)
+{
+    struct partdrv *p = priv;
+
+    return blk_rw_bytes(p->parent, p->start * 512 + (uint64_t)blk * LEMON_BSIZE, (void *)buf, LEMON_BSIZE, 1);
+}
+
+static int part_flush(void *priv)
+{
+    struct partdrv *p = priv;
+
+    return blk_flush(p->parent);
+}
+
+struct blkdrv *devfs_part_drv(struct blkdrv *parent, uint64_t start, uint64_t nsect, const char *name)
+{
+    unsigned i;
+    size_t n = strlen(name);
+
+    for (i = 0; i < 2; i++) {
+        struct partdrv *p = &partdrvs[i];
+
+        if (p->used)
+            continue;
+        memset(p, 0, sizeof(*p));
+        p->used = true;
+        p->parent = parent;
+        p->start = start;
+        if (n >= sizeof(p->name))
+            n = sizeof(p->name) - 1;
+        memcpy(p->name, name, n);
+        p->drv.name = p->name;
+        p->drv.priv = p;
+        p->drv.nsectors = nsect;
+        p->drv.nblocks = (uint32_t)(nsect / (LEMON_BSIZE / 512));
+        p->drv.read = part_read;
+        p->drv.write = part_write;
+        p->drv.flush = part_flush;
+        memcpy(p->drv.model, parent->model, sizeof(p->drv.model));
+        return &p->drv;
+    }
+    return NULL;
 }

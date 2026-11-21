@@ -41,6 +41,18 @@ config FBCON_SCALE
 
 endmenu
 
+menu "Boot"
+
+config KERNEL_CMDLINE
+	string "Kernel command line"
+	default "root=ram"
+	help
+	  Passed to the kernel by Limine for the live entry. Recognised options:
+	  root=ram (default, live system in RAM), root=auto (first disk),
+	  root=sdXN, root=PARTUUID=<guid>, root=PARTLABEL=<name>.
+
+endmenu
+
 menu "Build"
 
 config CROSS_PREFIX

@@ -8,6 +8,7 @@
 static struct blkdrv *devs[BLK_MAX];
 static unsigned       ndevs;
 static struct blkdrv *root_drv;
+static uint64_t       root_start, root_nsect;
 
 void blk_register(struct blkdrv *d)
 {
@@ -35,14 +36,18 @@ struct blkdrv *blk_get(unsigned i)
     return i < ndevs ? devs[i] : NULL;
 }
 
-void blk_set_root(struct blkdrv *d)
+void blk_set_root(struct blkdrv *d, uint64_t start, uint64_t nsect)
 {
     root_drv = d;
+    root_start = start;
+    root_nsect = nsect;
 }
 
-bool blk_is_root(const struct blkdrv *d)
+bool blk_overlaps_root(const struct blkdrv *d, uint64_t start, uint64_t nsect)
 {
-    return d && d == root_drv;
+    if (!d || d != root_drv)
+        return false;
+    return start < root_start + root_nsect && root_start < start + nsect;
 }
 
 static int sect_rw(struct blkdrv *d, uint64_t lba, uint32_t count, void *buf, int write)

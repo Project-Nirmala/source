@@ -37,6 +37,7 @@ OPTLEVEL := $(or $(CONFIG_OPT_LEVEL),2)
 DBGFLAG  := $(if $(filter y,$(CONFIG_DEBUG_INFO)),-g)
 WERRFLAG := $(if $(filter y,$(CONFIG_WERROR)),-Werror)
 LIMINE   ?= limine
+CMDLINE  := $(call unq,$(CONFIG_KERNEL_CMDLINE))
 LIMINE_BRANCH ?= $(or $(call unq,$(CONFIG_LIMINE_BRANCH)),v11.x-binary)
 QEMU     ?= qemu-system-x86_64
 QEMU_MEM ?= $(or $(call unq,$(CONFIG_QEMU_MEM)),256M)
@@ -90,7 +91,7 @@ ULDFLAGS := -m elf_x86_64 -nostdlib -static -z max-page-size=0x1000 -z noexecsta
 
 PROGS    := sbin/init bin/login bin/sh bin/ls bin/cat bin/echo bin/vi bin/mkdir bin/rmdir bin/rm bin/cp bin/mv \
             bin/touch bin/wc bin/head bin/tail bin/sort bin/uniq bin/grep bin/tee bin/uname bin/sleep \
-            bin/true bin/false bin/pwd bin/clear bin/resize bin/df bin/kill bin/test bin/date bin/ttydemo bin/utest bin/selftest bin/lsblk bin/dd bin/sync bin/gpt bin/fat
+            bin/true bin/false bin/pwd bin/clear bin/resize bin/df bin/kill bin/test bin/date bin/ttydemo bin/utest bin/selftest bin/lsblk bin/dd bin/sync bin/gpt bin/fat bin/install
 LIBC_SRC := $(wildcard lib/libc/*.c lib/libdisk/*.c)
 LIBC_OBJ := $(patsubst %.c,$(BUILD)/%.o,$(LIBC_SRC))
 LIBC_A   := $(BUILD)/lib/libc/libc.a
@@ -220,7 +221,14 @@ $(BUILD)/rootfs/%: rootfs/%
 	@mkdir -p $(dir $@)
 	$(Q)cp $< $@
 
-$(INITRD): $(ROOTBINS) $(ROOTETC)
+LIMINE_EFI := $(BUILD)/rootfs/usr/share/limine/BOOTX64.EFI
+
+$(LIMINE_EFI): | limine
+	$(LOG) "CP" "$@"
+	@mkdir -p $(dir $@)
+	$(Q)cp $(LIMINE)/BOOTX64.EFI $@
+
+$(INITRD): $(ROOTBINS) $(ROOTETC) $(LIMINE_EFI)
 	$(LOG) "TAR" "$@"
 	@for a in $(ALIASES); do cp -f "$(BUILD)/rootfs/$${a#*:}" "$(BUILD)/rootfs/$${a%%:*}"; done
 	$(Q)tar --format=ustar --sort=name --owner=0 --group=0 --numeric-owner \
@@ -241,7 +249,7 @@ $(ISO): $(KERNEL) $(INITRD) boot/limine.conf $(AUTOCONF) | limine
 	$(Q)cp $(KERNEL) $(BUILD)/iso/boot/nirmala
 	$(Q)cp $(INITRD) $(BUILD)/iso/boot/initrd.tar
 	$(Q)sed -e 's/^timeout:.*/timeout: $(BOOT_TIMEOUT)/' \
-	        -e 's|^\([[:space:]]*cmdline:.*\)|\1 cols=$(COLS) rows=$(ROWS)|' \
+	        -e 's|@CMDLINE@|$(CMDLINE)|' \
 	        boot/limine.conf > $(BUILD)/iso/boot/limine/limine.conf
 	$(Q)cp $(LIMINE)/limine-bios.sys $(LIMINE)/limine-bios-cd.bin \
 	   $(LIMINE)/limine-uefi-cd.bin $(BUILD)/iso/boot/limine/
