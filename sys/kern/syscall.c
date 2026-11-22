@@ -629,7 +629,14 @@ static long sys_kill(int64_t pid, int64_t sig)
 {
     uint32_t owner;
 
-    if (pid <= 1 || sig < 0 || sig > 31)
+    if (sig < 0 || sig > 31)
+        return -EPERM;
+    if (pid < -1) {
+        if (sig == 0)
+            return 0;
+        return proc_signal_pgrp((int)-pid, (int)sig) < 0 ? -ESRCH : 0;
+    }
+    if (pid <= 1)
         return -EPERM;
     if (proc_owner((int)pid, &owner) < 0)
         return -ESRCH;
@@ -821,6 +828,12 @@ void syscall_dispatch(struct trapframe *tf)
     case SYS_fstat:       r = sys_fstat(tf->rdi, tf->rsi); break;
     case SYS_access:      r = sys_access(tf->rdi); break;
     case SYS_kill:        r = sys_kill((int64_t)tf->rdi, (int64_t)tf->rsi); break;
+    case SYS_rt_sigaction: r = sys_sigaction(tf->rdi, tf->rsi, tf->rdx, tf->r10); break;
+    case SYS_rt_sigprocmask: r = sys_sigprocmask(tf->rdi, tf->rsi, tf->rdx, tf->r10); break;
+    case SYS_rt_sigreturn: r = sys_sigreturn(tf); break;
+    case SYS_setpgid:     r = sys_setpgid((int64_t)tf->rdi, (int64_t)tf->rsi); break;
+    case SYS_getpgrp:     r = sys_getpgid(0); break;
+    case SYS_getpgid:     r = sys_getpgid((int64_t)tf->rdi); break;
     case SYS_uname:       r = sys_uname(tf->rdi); break;
     case SYS_truncate:    r = sys_truncate(tf->rdi, (int64_t)tf->rsi); break;
     case SYS_ftruncate:   r = sys_ftruncate(tf->rdi, (int64_t)tf->rsi); break;
@@ -885,5 +898,5 @@ void syscall_dispatch(struct trapframe *tf)
     }
     tf->rax = (uint64_t)r;
     if (curproc->pending_sig)
-        proc_kill_self(curproc->pending_sig);
+        sig_deliver(tf);
 }

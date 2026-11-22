@@ -124,6 +124,11 @@ void exec_commit(struct proc *p, const struct exec_image *img, struct trapframe 
 
     p->pml4 = img->pml4;
     p->brk_start = p->brk = img->brk;
+    for (int i = 0; i < 32; i++)
+        if (p->sig_handler[i] > 1)
+            p->sig_handler[i] = 0;
+    p->sig_restorer = 0;
+    p->sig_mask = 0;
     fpu_reset(proc_fpu(p));
     fpu_restore(proc_fpu(p));
     vmm_switch(img->pml4);

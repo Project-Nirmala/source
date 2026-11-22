@@ -458,17 +458,3 @@ int execl(const char *path, const char *arg0, ...)
     return execve(path, (char *const *)argv, environ);
 }
 
-static sighandler_t handlers[32];
-
-sighandler_t signal(int sig, sighandler_t handler)
-{
-    sighandler_t old;
-
-    if (sig < 1 || sig > 31) {
-        errno = EINVAL;
-        return SIG_ERR;
-    }
-    old = handlers[sig];
-    handlers[sig] = handler;
-    return old;
-}

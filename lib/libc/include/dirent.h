@@ -19,4 +19,14 @@ struct dirent {
 
 long getdents64(int fd, void *buf, size_t n);
 
+typedef struct __dirstream {
+    int fd;
+    long pos, len;
+    char buf[2048];
+} DIR;
+
+DIR *opendir(const char *path);
+struct dirent *readdir(DIR *d);
+int closedir(DIR *d);
+
 #endif

@@ -48,4 +48,21 @@ int     gethostname(char *name, size_t size);
 int     sethostname(const char *name, size_t size);
 int     setkeymap(const char *name);
 
+extern char *optarg;
+extern int optind, opterr, optopt;
+int getopt(int argc, char *const argv[], const char *opts);
+pid_t getpgrp(void);
+int setpgid(pid_t pid, pid_t pgid);
+pid_t tcgetpgrp(int fd);
+int tcsetpgrp(int fd, pid_t pgrp);
+
+#define vfork fork
+
+#define F_OK 0
+#define X_OK 1
+#define W_OK 2
+#define R_OK 4
+
+int getgroups(int n, gid_t *list);
+
 #endif

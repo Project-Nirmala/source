@@ -13,4 +13,10 @@
 pid_t waitpid(pid_t pid, int *status, int options);
 pid_t wait(int *status);
 
+#define WUNTRACED 2
+#define WIFSTOPPED(s) (((s) & 0xFF) == 0x7F)
+#define WSTOPSIG(s) (((s) >> 8) & 0xFF)
+
+pid_t wait3(int *status, int options, void *usage);
+
 #endif

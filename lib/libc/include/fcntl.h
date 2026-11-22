@@ -5,4 +5,6 @@
 
 int open(const char *path, int flags, ...);
 
+int fcntl(int fd, int cmd, ...);
+
 #endif

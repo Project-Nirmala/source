@@ -62,6 +62,12 @@
 #define SYS_lchown      94
 #define SYS_sethostname 170
 #define SYS_reboot      169
+#define SYS_rt_sigaction 13
+#define SYS_rt_sigprocmask 14
+#define SYS_rt_sigreturn 15
+#define SYS_setpgid     109
+#define SYS_getpgrp     111
+#define SYS_getpgid     121
 #define SYS_netinfo     400
 #define SYS_netset      401
 #define SYS_setkeymap   402

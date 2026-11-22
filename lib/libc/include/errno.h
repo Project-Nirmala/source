@@ -5,4 +5,11 @@
 
 extern int errno;
 
+#ifndef EWOULDBLOCK
+#define EWOULDBLOCK 11
+#endif
+#ifndef ELOOP
+#define ELOOP 40
+#endif
+
 #endif

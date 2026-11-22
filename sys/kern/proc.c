@@ -222,6 +222,10 @@ long proc_fork(const struct trapframe *tf)
     memcpy(proc_fpu(c), proc_fpu(par), FPU_AREA_SIZE);
     c->cwd = par->cwd;
     c->uid = par->uid;
+    memcpy(c->sig_handler, par->sig_handler, sizeof(c->sig_handler));
+    c->sig_restorer = par->sig_restorer;
+    c->sig_mask = par->sig_mask;
+    c->pgid = par->pgid ? par->pgid : par->pid;
     c->gid = par->gid;
     c->brk_start = par->brk_start;
     c->brk = par->brk;
@@ -274,7 +278,7 @@ void sched_tick(struct trapframe *tf)
             p->state = P_RUNNABLE;
     }
     if ((tf->cs & 3) && curproc->pending_sig)
-        proc_kill_self(curproc->pending_sig);
+        sig_deliver(tf);
     if (curproc == &idle_proc) {
         schedule();
     } else if ((tf->cs & 3) && ++curproc->slice >= SLICE_TICKS) {
@@ -325,6 +329,30 @@ int proc_owner(int pid, uint32_t *uid)
         return -1;
     *uid = p->uid;
     return 0;
+}
+
+struct proc *proc_find(int pid)
+{
+    return find_pid(pid);
+}
+
+int proc_signal_pgrp(int pgid, int sig)
+{
+    int i, n = 0;
+
+    for (i = 1; i < MAXPROC; i++) {
+        struct proc *p = ptab[i];
+
+        if (p && p->state != P_ZOMBIE && (p->pgid ? p->pgid : p->pid) == pgid) {
+            p->pending_sig = sig;
+            if (p->state == P_SLEEPING) {
+                p->wchan = NULL;
+                p->state = P_RUNNABLE;
+            }
+            n++;
+        }
+    }
+    return n ? 0 : -1;
 }
 
 int proc_signal(int pid, int sig)

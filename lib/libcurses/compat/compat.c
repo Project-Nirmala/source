@@ -1,36 +1,6 @@
 #include <signal.h>
 #include "sigcompat.h"
 
-int sigaction(int sig, const struct sigaction *act, struct sigaction *old)
-{
-    (void)sig;
-    (void)act;
-    if (old)
-        old->sa_handler = SIG_DFL;
-    return 0;
-}
-
-int sigemptyset(sigset_t *s)
-{
-    *s = 0;
-    return 0;
-}
-
-int sigaddset(sigset_t *s, int sig)
-{
-    *s |= 1ul << (sig & 31);
-    return 0;
-}
-
-int sigprocmask(int how, const sigset_t *set, sigset_t *old)
-{
-    (void)how;
-    (void)set;
-    if (old)
-        *old = 0;
-    return 0;
-}
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <curses.h>

@@ -42,4 +42,7 @@ void *bsearch(const void *key, const void *base, size_t n, size_t size,
               int (*cmp)(const void *, const void *));
 const char *strerror(int err);
 
+long long strtoll(const char *s, char **end, int base);
+#define alloca(n) __builtin_alloca(n)
+
 #endif

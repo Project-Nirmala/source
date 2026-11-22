@@ -101,7 +101,7 @@ CRT0     := $(BUILD)/lib/libc/crt0.o
 MPROGS   := bin/nirmake bin/nirld bin/nircc
 CPROGS   := bin/install
 ALIASES  := bin/make:bin/nirmake bin/ld:bin/nirld bin/[:bin/test bin/poweroff:bin/reboot bin/halt:bin/reboot
-ROOTBINS := $(addprefix $(BUILD)/rootfs/,$(PROGS) $(MPROGS) $(CPROGS)) $(BUILD)/rootfs/bin/cc
+ROOTBINS := $(addprefix $(BUILD)/rootfs/,$(PROGS) $(MPROGS) $(CPROGS)) $(BUILD)/rootfs/bin/dash $(BUILD)/rootfs/bin/cc
 ROOTETC  := $(patsubst rootfs/%,$(BUILD)/rootfs/%,$(shell find rootfs -type f)) $(BUILD)/rootfs/usr/share/doc/LICENSE \
             $(BUILD)/rootfs/usr/lib/crt0.o $(BUILD)/rootfs/usr/lib/libc.a \
             $(BUILD)/rootfs/usr/share/examples/hello/hello.o $(BUILD)/rootfs/usr/include/.installed \
@@ -186,6 +186,12 @@ $(CURSES_A): $(CURSES_OBJ)
 	@mkdir -p $(dir $@)
 	$(Q)rm -f $@
 	$(Q)$(AR) rcs $@ $^
+
+$(BUILD)/rootfs/bin/dash: scripts/build-dash.sh $(CRT0) $(LIBC_A) $(wildcard lib/libc/include/*.h)
+	$(LOG) "DASH" "$@"
+	@mkdir -p $(dir $@)
+	$(Q)LIBC_A=$(abspath $(LIBC_A)) CRT0=$(abspath $(CRT0)) scripts/build-dash.sh . $(BUILD)/dash >/dev/null
+	$(Q)cp $(BUILD)/dash/dash $@
 
 define PROG_RULE
 $$(BUILD)/rootfs/$(1): $$(BUILD)/$(1)/$(notdir $(1)).o $$(CRT0) $$(LIBC_A) lib/libc/user.ld

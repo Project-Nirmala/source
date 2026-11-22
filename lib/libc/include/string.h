@@ -27,4 +27,12 @@ size_t strlcpy(char *dst, const char *src, size_t size);
 int    strcasecmp(const char *a, const char *b);
 int    strncasecmp(const char *a, const char *b, size_t n);
 
+char *strtok(char *s, const char *delim);
+char *stpncpy(char *d, const char *s, size_t n);
+
+void *mempcpy(void *d, const void *s, size_t n);
+char *stpcpy(char *d, const char *s);
+char *strchrnul(const char *s, int c);
+char *strsignal(int sig);
+
 #endif
