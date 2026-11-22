@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <tz.h>
 #include "engine.h"
 #include "ui.h"
 
@@ -85,18 +86,43 @@ static void text(int y, const char *s)
     mvwprintw(win, y, 3, "%-*.*s", ww - 6, ww - 6, s);
 }
 
-static int menu(int y, const char *const *items, const int *disabled, int n, int sel)
+static void status(const char *s)
 {
-    int ch, i, w = ww - 6;
+    attron(A_REVERSE);
+    mvprintw(rows - 1, 0, "%-*.*s", cols, cols, s);
+    attroff(A_REVERSE);
+    refresh();
+}
 
+/* Scrolls when the list is taller than the window. help[], if given, is shown on the status line. */
+static int menu_ex(int y, const char *const *items, const int *disabled, const char *const *help, int n, int sel)
+{
+    int ch, i, w = ww - 6, vis = wh - 1 - y, top = 0;
+
+    if (vis > n)
+        vis = n;
+    if (vis < 1)
+        vis = 1;
     for (;;) {
-        for (i = 0; i < n; i++) {
-            if (i == sel)
+        if (sel < top)
+            top = sel;
+        if (sel >= top + vis)
+            top = sel - vis + 1;
+        for (i = 0; i < vis; i++) {
+            int k = top + i;
+
+            if (k == sel)
                 wattron(win, attr_sel());
-            mvwprintw(win, y + i, 3, "%-*.*s", w, w, items[i]);
-            if (i == sel)
+            mvwprintw(win, y + i, 3, "%-*.*s", w, w, items[k]);
+            if (k == sel)
                 wattroff(win, attr_sel());
         }
+        if (n > vis) {
+            mvwaddch(win, y, ww - 3, top > 0 ? '^' : ' ');
+            mvwaddch(win, y + vis - 1, ww - 3, top + vis < n ? 'v' : ' ');
+        }
+        if (help)
+            status(help[sel]);
         wrefresh(win);
         ch = wgetch(win);
         if (ch == KEY_DOWN || ch == 'j') {
@@ -116,10 +142,15 @@ static int menu(int y, const char *const *items, const int *disabled, int n, int
         } else if (ch == '\n' || ch == '\r' || ch == KEY_ENTER) {
             if (!disabled || !disabled[sel])
                 return sel;
-        } else if (ch == 'q') {
+        } else if (ch == 'q' || ch == 27) {
             return -1;
         }
     }
+}
+
+static int menu(int y, const char *const *items, const int *disabled, int n, int sel)
+{
+    return menu_ex(y, items, disabled, NULL, n, sel);
 }
 
 static int input(int y, const char *label, char *buf, size_t size, int secret)
@@ -169,20 +200,6 @@ static void note(const char *title, const char *line1, const char *line2)
     wattroff(win, attr_err());
     text(4, line2);
     menu(7, items, NULL, 1, 0);
-}
-
-static int screen_welcome(void)
-{
-    static const char *const items[] = { "Install NirmalaSYS to a disk", "Quit to the shell" };
-
-    begin("Welcome", " Up/Down: select   Enter: continue   q: quit");
-    text(2, "Welcome to NirmalaSYS.");
-    text(4, "This installer prepares a disk for NirmalaSYS:");
-    text(5, "  - an EFI boot partition (100 MiB)");
-    text(6, "  - a root partition using the rest of the disk");
-    text(7, "  - an administrator account and an optional user");
-    text(9, "The machine must start from the disk in UEFI mode.");
-    return menu(12, items, NULL, 2, 0);
 }
 
 static int screen_disks(const struct inst_disk *disks, int count)
@@ -241,39 +258,156 @@ static int screen_password(const char *title, const char *who, char *out, size_t
     }
 }
 
-static int screen_accounts(struct account *acc, int *nacc)
+static void account_init(struct account *acc)
 {
-    char name[64];
-
     memset(acc, 0, sizeof(*acc) * MKROOT_MAX_ACCOUNTS);
     snprintf(acc[0].name, sizeof(acc[0].name), "root");
     snprintf(acc[0].home, sizeof(acc[0].home), "/root");
     snprintf(acc[0].shell, sizeof(acc[0].shell), "/bin/sh");
-    if (screen_password("Administrator account", "root", acc[0].password, sizeof(acc[0].password)) < 0)
-        return -1;
+}
+
+/* Returns 0 when the password was set, -1 when cancelled (the old one is kept). */
+static int screen_rootpw(struct account *acc)
+{
+    char pw[sizeof(acc[0].password)];
+    int r = screen_password("Root password", "root", pw, sizeof(pw));
+
+    if (r == 0)
+        memcpy(acc[0].password, pw, sizeof(pw));
+    memset(pw, 0, sizeof(pw));
+    return r;
+}
+
+/* Returns 1 when acc[1] holds a user afterwards, 0 when there is none, -1 when cancelled. */
+static int screen_user(struct account *acc)
+{
+    char name[64], pw[sizeof(acc[1].password)];
 
     for (;;) {
         begin("User account", " Enter: continue   Esc: back");
-        text(2, "Create a regular account, or leave the name empty to skip.");
+        text(2, "Create a regular account, or leave the name empty for none.");
         text(3, "Use a-z, 0-9, '_' and '-', starting with a letter or '_'.");
         if (input(5, "Username", name, sizeof(name), 0) < 0)
             return -1;
         if (!name[0]) {
-            *nacc = 1;
+            memset(&acc[1], 0, sizeof(acc[1]));
             return 0;
         }
         if (inst_valid_username(name))
             break;
         note("User account", "That username is not valid.", "Use 1-31 characters and not \"root\".");
     }
+    if (screen_password("User account", name, pw, sizeof(pw)) < 0)
+        return -1;
+    memset(&acc[1], 0, sizeof(acc[1]));
     snprintf(acc[1].name, sizeof(acc[1].name), "%s", name);
     snprintf(acc[1].home, sizeof(acc[1].home), "/home/%s", name);
     snprintf(acc[1].shell, sizeof(acc[1].shell), "/bin/sh");
     acc[1].uid = acc[1].gid = 1000;
-    if (screen_password("User account", name, acc[1].password, sizeof(acc[1].password)) < 0)
-        return -1;
-    *nacc = 2;
-    return 0;
+    memcpy(acc[1].password, pw, sizeof(pw));
+    memset(pw, 0, sizeof(pw));
+    return 1;
+}
+
+/* A list of choices; returns the chosen index, or -1 when cancelled. */
+static int screen_choose(const char *title, const char *prompt, const char *const *items, int n, int cur)
+{
+    begin(title, " Up/Down: select   Enter: choose   q: back");
+    text(2, prompt);
+    return menu(4, items, NULL, n, cur < 0 ? 0 : cur);
+}
+
+static int index_of(const char *const *list, int n, const char *s)
+{
+    int i;
+
+    for (i = 0; i < n; i++)
+        if (!strcmp(list[i], s))
+            return i;
+    return -1;
+}
+
+static void screen_keyboard(struct sysconfig *cfg)
+{
+    int i = screen_choose("Keyboard", "Choose the keyboard layout:", inst_keymaps, inst_nkeymaps,
+                          index_of(inst_keymaps, inst_nkeymaps, cfg->keymap));
+
+    if (i >= 0)
+        snprintf(cfg->keymap, sizeof(cfg->keymap), "%s", inst_keymaps[i]);
+}
+
+static void screen_locale(struct sysconfig *cfg)
+{
+    int i = screen_choose("Locale", "Choose the system locale:", inst_locales, inst_nlocales,
+                          index_of(inst_locales, inst_nlocales, cfg->locale));
+
+    if (i >= 0)
+        snprintf(cfg->locale, sizeof(cfg->locale), "%s", inst_locales[i]);
+}
+
+static void screen_timezone(struct sysconfig *cfg)
+{
+    const char *items[64];
+    char lines[64][48];
+    int i, n = tz_count < 64 ? tz_count : 64;
+
+    for (i = 0; i < n; i++) {
+        snprintf(lines[i], sizeof(lines[i]), "%-24s %s", tz_table[i].name, tz_table[i].abbr);
+        items[i] = lines[i];
+    }
+    i = screen_choose("Time zone", "Choose the time zone:", items, n, tz_find(cfg->timezone));
+    if (i >= 0)
+        snprintf(cfg->timezone, sizeof(cfg->timezone), "%s", tz_table[i].name);
+}
+
+static void screen_hostname(struct sysconfig *cfg)
+{
+    char name[sizeof(cfg->hostname)];
+
+    for (;;) {
+        begin("Hostname", " Enter: continue   Esc: back");
+        text(2, "Enter the name of this machine.");
+        text(3, "Use a-z, 0-9 and '-', up to 31 characters.");
+        if (input(5, "Hostname", name, sizeof(name), 0) < 0)
+            return;
+        if (inst_valid_hostname(name)) {
+            snprintf(cfg->hostname, sizeof(cfg->hostname), "%s", name);
+            return;
+        }
+        note("Hostname", "That hostname is not valid.", "Use a-z, 0-9 and '-', not starting or ending with '-'.");
+    }
+}
+
+static void screen_network(struct sysconfig *cfg)
+{
+    static const char *const items[] = { "DHCP (automatic)", "Static address" };
+    struct sysconfig t = *cfg;
+    char *const f[4] = { t.ip, t.mask, t.gw, t.dns };
+    static const char *const label[4] = { "IP address", "Netmask", "Gateway", "DNS server" };
+    int i, k = screen_choose("Network", "How should the network be set up?", items, 2, cfg->net_static);
+
+    if (k < 0)
+        return;
+    if (k == 0) {
+        cfg->net_static = 0;
+        return;
+    }
+    t.net_static = 1;
+    for (i = 0; i < 4;) {
+        char v[16];
+
+        begin("Static network", " Enter: continue   Esc: back");
+        text(2, "Enter IPv4 addresses, for example 192.168.1.10.");
+        if (input(4, label[i], v, sizeof(v), 0) < 0)
+            return;
+        if (!inst_valid_ipv4(v)) {
+            note("Static network", "That is not a valid IPv4 address.", "Enter four numbers from 0 to 255, separated by dots.");
+            continue;
+        }
+        snprintf(f[i], 16, "%s", v);
+        i++;
+    }
+    *cfg = t;
 }
 
 static int screen_confirm(const struct inst_disk *d, const struct inst_layout *lay, const struct account *acc,
@@ -322,40 +456,76 @@ static void draw_progress(int step, void *ctx)
 }
 
 static int screen_install(const struct inst_disk *d, const struct inst_layout *lay, const struct account *acc,
-                          int nacc)
+                          int nacc, const struct sysconfig *cfg)
 {
     char err[160];
-    static const char *const items[] = { "Return" };
+    static const char *const ret[] = { "Return" };
+    static const char *const after[] = { "Reboot", "Power off", "Live system" };
     int r;
 
     begin("Installing", " Please wait. Do not power off the machine.");
     draw_progress(0, NULL);
-    r = inst_run(d->name, lay, acc, (unsigned)nacc, draw_progress, NULL, err, sizeof(err));
-    begin(r == 0 ? "Finished" : "Installation failed", " Enter: continue");
-    if (r == 0) {
-        wattron(win, attr_ok());
-        text(2, "Installation complete.");
-        wattroff(win, attr_ok());
-        text(4, "Shut down, remove the installation media");
-        text(5, "and boot the new disk in UEFI mode.");
-    } else {
+    r = inst_run(d->name, lay, acc, (unsigned)nacc, cfg, draw_progress, NULL, err, sizeof(err));
+    if (r != 0) {
+        begin("Installation failed", " Enter: continue");
         wattron(win, attr_err());
         text(2, "The installation did not complete.");
         wattroff(win, attr_err());
         text(4, err);
         text(5, "No further changes were made to the running system.");
+        menu(8, ret, NULL, 1, 0);
+        return 1;
     }
-    menu(8, items, NULL, 1, 0);
-    return r == 0 ? 0 : 1;
+    for (;;) {
+        int c;
+
+        begin("Finished", " Up/Down: select   Enter: choose");
+        wattron(win, attr_ok());
+        text(2, "Installation complete.");
+        wattroff(win, attr_ok());
+        text(4, "Remove the installation media, then reboot to");
+        text(5, "start the new disk in UEFI mode.");
+        c = menu(8, after, NULL, 3, 0);
+        if (c == 0 || c == 1) {
+            sync();
+            inst_power(c); /* only returns on failure */
+            note("Cannot continue", c ? "Powering off failed." : "Restarting failed.",
+                 "Choose Live system and run reboot or poweroff.");
+        } else if (c == 2) {
+            return 0;
+        }
+    }
 }
+
+enum {
+    M_KEYBOARD, M_NETWORK, M_HOSTNAME, M_LOCALE, M_TIMEZONE, M_ROOTPW, M_USER, M_DISK, M_INSTALL, M_EXIT, M_COUNT
+};
+
+static const char *const menu_label[M_COUNT] = {
+    "Keyboard", "Network", "Hostname", "Locale", "Timezone", "RootPassword", "UserAccount", "Disk", "Install", "Exit"
+};
+
+static const char *const menu_help[M_COUNT] = {
+    " Set system keyboard layout",
+    " Set up the network (DHCP or a static address)",
+    " Set system hostname",
+    " Set system locale",
+    " Set system time zone",
+    " Set the root (administrator) password - required",
+    " Create a regular user account (optional)",
+    " Choose the disk to install to - required. ALL DATA ON IT WILL BE ERASED",
+    " Start installation with the saved settings",
+    " Exit the installer",
+};
 
 int ui_curses_run(void)
 {
-    struct inst_disk disks[INST_MAX_DISKS];
+    struct sysconfig cfg;
     struct account acc[MKROOT_MAX_ACCOUNTS];
+    struct inst_disk disk;
     struct inst_layout lay;
     SCREEN *scr;
-    int rc = 1;
+    int rc = 1, sel = 0, have_disk = 0, have_user = 0, done = 0;
 
     scr = newterm(getenv("TERM") ? getenv("TERM") : "linux", stdout, stdin);
     if (!scr)
@@ -368,34 +538,104 @@ int ui_curses_run(void)
     curs_set(0);
     setup_colors();
 
-    for (;;) {
-        char err[128];
-        int count, pick, nacc = 0, choice = screen_welcome();
+    inst_config_defaults(&cfg);
+    account_init(acc);
 
-        if (choice != 0) {
-            rc = 1;
+    while (!done) {
+        char lines[M_COUNT][80], err[128];
+        const char *items[M_COUNT];
+        int i, root_set = acc[0].password[0] != 0;
+
+        for (i = 0; i < M_COUNT; i++)
+            items[i] = lines[i];
+        for (i = 0; i < M_COUNT; i++)
+            snprintf(lines[i], sizeof(lines[i]), "%-13s", menu_label[i]);
+        snprintf(lines[M_KEYBOARD] + 13, 67, "%s", cfg.keymap);
+        if (cfg.net_static)
+            snprintf(lines[M_NETWORK] + 13, 67, "static %s", cfg.ip);
+        else
+            snprintf(lines[M_NETWORK] + 13, 67, "DHCP");
+        snprintf(lines[M_HOSTNAME] + 13, 67, "%s", cfg.hostname);
+        snprintf(lines[M_LOCALE] + 13, 67, "%s", cfg.locale);
+        snprintf(lines[M_TIMEZONE] + 13, 67, "%s", cfg.timezone);
+        snprintf(lines[M_ROOTPW] + 13, 67, "%s", root_set ? "set" : "NOT SET (required)");
+        snprintf(lines[M_USER] + 13, 67, "%s", have_user ? acc[1].name : "none");
+        if (have_disk)
+            snprintf(lines[M_DISK] + 13, 67, "%s  %lu MiB  %s", disk.name, (unsigned long)disk.mib, disk.model);
+        else
+            snprintf(lines[M_DISK] + 13, 67, "NOT SELECTED (required)");
+        snprintf(lines[M_INSTALL] + 13, 67, "Start installation");
+        snprintf(lines[M_EXIT] + 13, 67, "Exit the installer");
+
+        begin("NirmalaSYS installation menu", " Up/Down: select   Enter: open");
+        text(1, "Set the items in any order, then choose Install.");
+        i = menu_ex(3, items, NULL, menu_help, M_COUNT, sel);
+        if (i < 0)
+            continue;
+        sel = i;
+
+        switch (i) {
+        case M_KEYBOARD:
+            screen_keyboard(&cfg);
+            break;
+        case M_NETWORK:
+            screen_network(&cfg);
+            break;
+        case M_HOSTNAME:
+            screen_hostname(&cfg);
+            break;
+        case M_LOCALE:
+            screen_locale(&cfg);
+            break;
+        case M_TIMEZONE:
+            screen_timezone(&cfg);
+            break;
+        case M_ROOTPW:
+            screen_rootpw(acc);
+            break;
+        case M_USER: {
+            int u = screen_user(acc);
+
+            if (u >= 0)
+                have_user = u;
             break;
         }
-        count = inst_list(disks, INST_MAX_DISKS);
-        pick = screen_disks(disks, count);
-        if (pick < 0)
-            continue;
-        if (inst_plan(disks[pick].name, &lay, err, sizeof(err)) < 0) {
-            note("Cannot install", err, "Choose another disk.");
-            continue;
+        case M_DISK: {
+            struct inst_disk disks[INST_MAX_DISKS];
+            int pick = screen_disks(disks, inst_list(disks, INST_MAX_DISKS));
+
+            if (pick >= 0) {
+                disk = disks[pick];
+                have_disk = 1;
+            }
+            break;
         }
-        if (screen_accounts(acc, &nacc) < 0) {
-            memset(acc, 0, sizeof(acc));
-            continue;
+        case M_INSTALL:
+            if (!root_set) {
+                note("Cannot install", "The root password is not set.", "Open RootPassword and set one first.");
+                sel = M_ROOTPW;
+            } else if (!have_disk) {
+                note("Cannot install", "No disk has been selected.", "Open Disk and choose where to install.");
+                sel = M_DISK;
+            } else if (inst_config_check(&cfg, err, sizeof(err)) < 0) {
+                note("Cannot install", err, "Fix the setting and try again.");
+            } else if (inst_plan(disk.name, &lay, err, sizeof(err)) < 0) {
+                note("Cannot install", err, "Choose another disk.");
+                have_disk = 0;
+                sel = M_DISK;
+            } else if (screen_confirm(&disk, &lay, acc, have_user ? 2 : 1)) {
+                rc = screen_install(&disk, &lay, acc, have_user ? 2 : 1, &cfg);
+                if (rc == 0)
+                    done = 1;
+            }
+            break;
+        case M_EXIT:
+            rc = 1;
+            done = 1;
+            break;
         }
-        if (!screen_confirm(&disks[pick], &lay, acc, nacc)) {
-            memset(acc, 0, sizeof(acc));
-            continue;
-        }
-        rc = screen_install(&disks[pick], &lay, acc, nacc);
-        memset(acc, 0, sizeof(acc));
-        break;
     }
+    memset(acc, 0, sizeof(acc));
     if (win)
         delwin(win);
     bkgd(A_NORMAL);

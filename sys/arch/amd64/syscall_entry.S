@@ -3,11 +3,10 @@
 .section .text
 .global syscall_entry
 syscall_entry:
-    swapgs
-    movq %rsp, %gs:16
-    movq %gs:8, %rsp
+    movq %rsp, cpu0+16(%rip)
+    movq cpu0+8(%rip), %rsp
     pushq $SEL_UDATA
-    pushq %gs:16
+    pushq cpu0+16(%rip)
     pushq %r11
     pushq $SEL_UCODE
     pushq %rcx

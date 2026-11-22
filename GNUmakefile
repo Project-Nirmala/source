@@ -92,7 +92,8 @@ ULDFLAGS := -m elf_x86_64 -nostdlib -static -z max-page-size=0x1000 -z noexecsta
 
 PROGS    := sbin/init bin/login bin/sh bin/ls bin/cat bin/echo bin/vi bin/mkdir bin/rmdir bin/rm bin/cp bin/mv \
             bin/touch bin/wc bin/head bin/tail bin/sort bin/uniq bin/grep bin/tee bin/uname bin/sleep \
-            bin/true bin/false bin/pwd bin/clear bin/resize bin/df bin/kill bin/test bin/date bin/ttydemo bin/utest bin/selftest bin/lsblk bin/dd bin/sync bin/gpt bin/fat bin/wget bin/ping
+            bin/true bin/false bin/pwd bin/clear bin/resize bin/df bin/kill bin/test bin/date bin/ttydemo bin/utest bin/selftest bin/lsblk bin/dd bin/sync bin/gpt bin/fat bin/wget bin/ping \
+            bin/chmod bin/chown bin/id bin/loadkeys bin/reboot
 LIBC_SRC := $(wildcard lib/libc/*.c lib/libdisk/*.c)
 LIBC_OBJ := $(patsubst %.c,$(BUILD)/%.o,$(LIBC_SRC))
 LIBC_A   := $(BUILD)/lib/libc/libc.a

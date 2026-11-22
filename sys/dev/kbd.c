@@ -55,6 +55,7 @@ int kbd_set_map(const char *name)
 }
 
 static bool shift, ctrl, caps, extended;
+static int skip_bytes;
 
 static bool wait_input_clear(void)
 {
@@ -76,22 +77,75 @@ static bool wait_output_full(void)
     return false;
 }
 
+static const char *ext_seq(uint8_t code)
+{
+    switch (code) {
+    case 0x48: return "\033[A";
+    case 0x50: return "\033[B";
+    case 0x4D: return "\033[C";
+    case 0x4B: return "\033[D";
+    case 0x47: return "\033[1~";
+    case 0x4F: return "\033[4~";
+    case 0x49: return "\033[5~";
+    case 0x51: return "\033[6~";
+    case 0x53: return "\033[3~";
+    case 0x52: return "\033[2~";
+    case 0x1C: return "\r";
+    case 0x35: return "/";
+    }
+    return NULL;
+}
+
+static void emit_seq(const char *seq)
+{
+    while (seq && *seq)
+        tty_input((uint8_t)*seq++);
+}
+
 static void kbd_irq(struct trapframe *tf)
 {
+    uint8_t st;
+
     (void)tf;
 
-    while (inb(KBD_STATUS) & 1) {
+    while ((st = inb(KBD_STATUS)) & 1) {
         uint8_t sc = inb(KBD_DATA);
         uint8_t code = sc & 0x7F;
         bool release = sc & 0x80;
         char c;
 
+        if (st & 0x20)
+            continue;
+        if (skip_bytes) {
+            skip_bytes--;
+            continue;
+        }
+        if (sc == 0xE1) {
+            skip_bytes = 5;
+            extended = false;
+            continue;
+        }
         if (sc == 0xE0) {
             extended = true;
             continue;
         }
+        if (sc == 0xFA || sc == 0xFE || sc == 0xFF)
+            continue;
         if (extended) {
             extended = false;
+            if (code == SC_CTRL) {
+                ctrl = !release;
+                continue;
+            }
+            if (code == SC_LSHIFT || code == SC_RSHIFT)
+                continue;
+            if (!release)
+                emit_seq(ext_seq(code));
+            continue;
+        }
+        if (code >= 0x47 && code <= 0x53 && code != 0x4A && code != 0x4E) {
+            if (!release)
+                emit_seq(ext_seq(code));
             continue;
         }
         if (code == SC_LSHIFT || code == SC_RSHIFT) {
@@ -135,11 +189,15 @@ void kbd_init(void)
     while (inb(KBD_STATUS) & 1)
         inb(KBD_DATA);
 
+    if (wait_input_clear())
+        outb(KBD_CMD, 0xAE);
+
     if (wait_input_clear()) {
         outb(KBD_CMD, 0x20);
         if (wait_output_full()) {
             cfg = inb(KBD_DATA);
-            cfg |= 1;
+            cfg |= 0x41;
+            cfg &= (uint8_t)~0x10;
             if (wait_input_clear()) {
                 outb(KBD_CMD, 0x60);
                 if (wait_input_clear())
@@ -147,5 +205,9 @@ void kbd_init(void)
             }
         }
     }
+    if (wait_input_clear())
+        outb(KBD_DATA, 0xF4);
+    if (wait_output_full())
+        inb(KBD_DATA);
     irq_register(1, kbd_irq);
 }

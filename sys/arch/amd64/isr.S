@@ -70,10 +70,6 @@ ISR 47, 0
 .section .text
 .global isr_return
 isr_common:
-    testb $3, 24(%rsp)
-    jz 1f
-    swapgs
-1:
     pushq %rax
     pushq %rbx
     pushq %rcx
@@ -110,8 +106,4 @@ isr_return:
     popq %rbx
     popq %rax
     addq $16, %rsp
-    testb $3, 8(%rsp)
-    jz 1f
-    swapgs
-1:
     iretq

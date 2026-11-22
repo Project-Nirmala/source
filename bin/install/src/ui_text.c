@@ -105,6 +105,7 @@ int ui_text_run(const char *target)
     struct inst_disk disks[INST_MAX_DISKS];
     struct account acc[MKROOT_MAX_ACCOUNTS];
     struct inst_layout lay;
+    struct sysconfig cfg;
     char answer[64], choice[16], err[128];
     int count, nacc, i, r;
 
@@ -152,7 +153,8 @@ int ui_text_run(const char *target)
         memset(acc, 0, sizeof(acc));
         return 1;
     }
-    r = inst_run(target, &lay, acc, (unsigned)nacc, progress, NULL, err, sizeof(err));
+    inst_config_defaults(&cfg);
+    r = inst_run(target, &lay, acc, (unsigned)nacc, &cfg, progress, NULL, err, sizeof(err));
     memset(acc, 0, sizeof(acc));
     if (r < 0) {
         dprintf(2, "install: %s\n", err);
