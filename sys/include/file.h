@@ -4,7 +4,7 @@
 #include <types.h>
 #include <vfs.h>
 
-#define NOFILE 16
+#define NOFILE 128
 
 struct file {
     struct vnode *vn;

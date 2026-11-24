@@ -7,9 +7,8 @@
 
 static void become_foreground(void)
 {
-    int pid = (int)getpid();
-
-    ioctl(0, TIOCSPGRP, &pid);
+    setpgid(0, 0);
+    tcsetpgrp(0, getpgrp());
 }
 
 static void raw_mode_demo(void)

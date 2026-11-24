@@ -25,6 +25,7 @@ typedef struct __dirstream {
     char buf[2048];
 } DIR;
 
+DIR *fdopendir(int fd);
 DIR *opendir(const char *path);
 struct dirent *readdir(DIR *d);
 int closedir(DIR *d);

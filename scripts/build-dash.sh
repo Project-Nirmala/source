@@ -9,6 +9,10 @@ cd "$OUT"
     curl -sL -o dash.tgz https://archive.ubuntu.com/ubuntu/pool/main/d/dash/dash_$VER.orig.tar.gz
     tar xzf dash.tgz
 }
+[ -f dash-$VER/.nirmala-patched ] || {
+    (cd dash-$VER && patch -p1 < "$SRC/scripts/dash-pwd-prompt.patch" >/dev/null)
+    touch dash-$VER/.nirmala-patched
+}
 cd dash-$VER
 [ -f config.h ] || { ./configure >/dev/null; make -j4 >/dev/null 2>&1 || true; }
 sed -e '/HAVE_SIGSETMASK/d' -e '/HAVE_FACCESSAT/d' config.h > "$OUT/config.h"

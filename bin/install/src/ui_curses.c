@@ -15,6 +15,7 @@
 
 static WINDOW *win;
 static int rows, cols, wh, ww;
+static unsigned part_esp, part_swap, part_root;
 
 static int attr_base(void)
 {
@@ -263,7 +264,7 @@ static void account_init(struct account *acc)
     memset(acc, 0, sizeof(*acc) * MKROOT_MAX_ACCOUNTS);
     snprintf(acc[0].name, sizeof(acc[0].name), "root");
     snprintf(acc[0].home, sizeof(acc[0].home), "/root");
-    snprintf(acc[0].shell, sizeof(acc[0].shell), "/bin/sh");
+    snprintf(acc[0].shell, sizeof(acc[0].shell), "/bin/dash");
 }
 
 /* Returns 0 when the password was set, -1 when cancelled (the old one is kept). */
@@ -302,7 +303,7 @@ static int screen_user(struct account *acc)
     memset(&acc[1], 0, sizeof(acc[1]));
     snprintf(acc[1].name, sizeof(acc[1].name), "%s", name);
     snprintf(acc[1].home, sizeof(acc[1].home), "/home/%s", name);
-    snprintf(acc[1].shell, sizeof(acc[1].shell), "/bin/sh");
+    snprintf(acc[1].shell, sizeof(acc[1].shell), "/bin/dash");
     acc[1].uid = acc[1].gid = 1000;
     memcpy(acc[1].password, pw, sizeof(pw));
     memset(pw, 0, sizeof(pw));
@@ -410,6 +411,55 @@ static void screen_network(struct sysconfig *cfg)
     *cfg = t;
 }
 
+static int parse_mib(const char *s, unsigned *out)
+{
+    char *e;
+    unsigned long v;
+
+    if (!*s)
+        return 0;
+    v = strtoul(s, &e, 10);
+    if (*e || v > 0x7FFFFFFFul)
+        return -1;
+    *out = (unsigned)v;
+    return 0;
+}
+
+static void screen_partitions(void)
+{
+    char b[16];
+    unsigned esp = part_esp, swp = part_swap, rt = part_root;
+
+    begin("Partitions", " Enter: next field (empty = keep)   Esc: cancel");
+    text(1, "Sizes are in MiB. Leave a field empty to keep its value.");
+    text(2, "The layout is: boot, swap (optional), root.");
+    snprintf(b, sizeof(b), "%u", esp ? esp : INST_ESP_MIB);
+    text(4, "Boot (EFI) partition size, default 100:");
+    if (input(5, "Boot MiB", b, sizeof(b), 0) < 0)
+        return;
+    if (parse_mib(b, &esp) < 0) {
+        note("Partitions", "Not a valid number.", "Nothing was changed.");
+        return;
+    }
+    text(7, "Swap partition size, 0 for none:");
+    if (input(8, "Swap MiB", b, sizeof(b), 0) < 0)
+        return;
+    if (parse_mib(b, &swp) < 0) {
+        note("Partitions", "Not a valid number.", "Nothing was changed.");
+        return;
+    }
+    text(10, "Root partition size, 0 for the rest of the disk:");
+    if (input(11, "Root MiB", b, sizeof(b), 0) < 0)
+        return;
+    if (parse_mib(b, &rt) < 0) {
+        note("Partitions", "Not a valid number.", "Nothing was changed.");
+        return;
+    }
+    part_esp = esp == INST_ESP_MIB ? 0 : esp;
+    part_swap = swp;
+    part_root = rt;
+}
+
 static int screen_confirm(const struct inst_disk *d, const struct inst_layout *lay, const struct account *acc,
                           int nacc)
 {
@@ -420,15 +470,21 @@ static int screen_confirm(const struct inst_disk *d, const struct inst_layout *l
     begin("Confirm", " Up/Down: select   Enter: confirm");
     snprintf(line, sizeof(line), "Install to %s (%lu MiB, %s)", d->name, (unsigned long)d->mib, d->model);
     text(2, line);
-    text(4, "Partition 1: EFI boot partition, 100 MiB");
-    snprintf(line, sizeof(line), "Partition 2: NirmalaSYS root, %lu MiB", (unsigned long)(lay->root_sectors / 2048));
-    text(5, line);
+    snprintf(line, sizeof(line), "Partition 1: EFI boot partition, %lu MiB", (unsigned long)(lay->esp_sectors / 2048));
+    text(4, line);
+    if (lay->swap_sectors) {
+        snprintf(line, sizeof(line), "Partition 2: swap, %lu MiB", (unsigned long)(lay->swap_sectors / 2048));
+        text(5, line);
+    }
+    snprintf(line, sizeof(line), "Partition %d: NirmalaSYS root, %lu MiB", lay->swap_sectors ? 3 : 2,
+             (unsigned long)(lay->root_sectors / 2048));
+    text(lay->swap_sectors ? 6 : 5, line);
     snprintf(line, sizeof(line), "Accounts: %s%s%s", acc[0].name, nacc > 1 ? ", " : "", nacc > 1 ? acc[1].name : "");
-    text(6, line);
+    text(7, line);
     wattron(win, attr_err());
-    text(8, "ALL DATA ON THIS DISK WILL BE ERASED.");
+    text(9, "ALL DATA ON THIS DISK WILL BE ERASED.");
     wattroff(win, attr_err());
-    r = menu(11, items, NULL, 2, 0);
+    r = menu(12, items, NULL, 2, 0);
     return r == 1;
 }
 
@@ -498,11 +554,11 @@ static int screen_install(const struct inst_disk *d, const struct inst_layout *l
 }
 
 enum {
-    M_KEYBOARD, M_NETWORK, M_HOSTNAME, M_LOCALE, M_TIMEZONE, M_ROOTPW, M_USER, M_DISK, M_INSTALL, M_EXIT, M_COUNT
+    M_KEYBOARD, M_NETWORK, M_HOSTNAME, M_LOCALE, M_TIMEZONE, M_ROOTPW, M_USER, M_DISK, M_PART, M_INSTALL, M_EXIT, M_COUNT
 };
 
 static const char *const menu_label[M_COUNT] = {
-    "Keyboard", "Network", "Hostname", "Locale", "Timezone", "RootPassword", "UserAccount", "Disk", "Install", "Exit"
+    "Keyboard", "Network", "Hostname", "Locale", "Timezone", "RootPassword", "UserAccount", "Disk", "Partitions", "Install", "Exit"
 };
 
 static const char *const menu_help[M_COUNT] = {
@@ -514,6 +570,7 @@ static const char *const menu_help[M_COUNT] = {
     " Set the root (administrator) password - required",
     " Create a regular user account (optional)",
     " Choose the disk to install to - required. ALL DATA ON IT WILL BE ERASED",
+    " Set partition sizes and an optional swap partition (default: automatic)",
     " Start installation with the saved settings",
     " Exit the installer",
 };
@@ -564,6 +621,11 @@ int ui_curses_run(void)
             snprintf(lines[M_DISK] + 13, 67, "%s  %lu MiB  %s", disk.name, (unsigned long)disk.mib, disk.model);
         else
             snprintf(lines[M_DISK] + 13, 67, "NOT SELECTED (required)");
+        if (!part_esp && !part_swap && !part_root)
+            snprintf(lines[M_PART] + 13, 67, "automatic (no swap)");
+        else
+            snprintf(lines[M_PART] + 13, 67, "boot %u, swap %u, root %u MiB (0 = default/rest)",
+                     part_esp ? part_esp : INST_ESP_MIB, part_swap, part_root);
         snprintf(lines[M_INSTALL] + 13, 67, "Start installation");
         snprintf(lines[M_EXIT] + 13, 67, "Exit the installer");
 
@@ -610,6 +672,9 @@ int ui_curses_run(void)
             }
             break;
         }
+        case M_PART:
+            screen_partitions();
+            break;
         case M_INSTALL:
             if (!root_set) {
                 note("Cannot install", "The root password is not set.", "Open RootPassword and set one first.");
@@ -619,10 +684,9 @@ int ui_curses_run(void)
                 sel = M_DISK;
             } else if (inst_config_check(&cfg, err, sizeof(err)) < 0) {
                 note("Cannot install", err, "Fix the setting and try again.");
-            } else if (inst_plan(disk.name, &lay, err, sizeof(err)) < 0) {
-                note("Cannot install", err, "Choose another disk.");
-                have_disk = 0;
-                sel = M_DISK;
+            } else if (inst_plan_ex(disk.name, part_esp, part_swap, part_root, &lay, err, sizeof(err)) < 0) {
+                note("Cannot install", err, "Change the disk or the partition sizes.");
+                sel = M_PART;
             } else if (screen_confirm(&disk, &lay, acc, have_user ? 2 : 1)) {
                 rc = screen_install(&disk, &lay, acc, have_user ? 2 : 1, &cfg);
                 if (rc == 0)

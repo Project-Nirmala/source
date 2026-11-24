@@ -45,6 +45,8 @@ struct tm *gmtime_r(const time_t *t, struct tm *out)
     out->tm_mday = (int)d;
     out->tm_yday = (int)(days - days_from_civil(y, 1, 1));
     out->tm_isdst = 0;
+    out->tm_gmtoff = 0;
+    out->tm_zone = "UTC";
     return out;
 }
 
@@ -81,4 +83,56 @@ time_t timegm(struct tm *tm)
     }
     return (time_t)(days_from_civil(y, (unsigned)m + 1, 1) * 86400 + (tm->tm_mday - 1) * 86400L +
                     tm->tm_hour * 3600L + tm->tm_min * 60L + tm->tm_sec);
+}
+
+static const char *const _mon[] = { "jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec" };
+
+static int _num(const char **s, int max, int *out)
+{
+    int n = 0, d = 0;
+
+    while (d < max && **s >= '0' && **s <= '9') {
+        n = n * 10 + (**s - '0');
+        (*s)++;
+        d++;
+    }
+    *out = n;
+    return d;
+}
+
+char *strptime(const char *s, const char *fmt, struct tm *tm)
+{
+    int v, i;
+
+    while (*fmt) {
+        if (*fmt != '%') {
+            if (*s++ != *fmt++)
+                return 0;
+            continue;
+        }
+        fmt++;
+        switch (*fmt++) {
+        case 'Y': if (!_num(&s, 4, &v)) return 0; tm->tm_year = v - 1900; break;
+        case 'y': if (!_num(&s, 2, &v)) return 0; tm->tm_year = v < 69 ? v + 100 : v; break;
+        case 'm': if (!_num(&s, 2, &v)) return 0; tm->tm_mon = v - 1; break;
+        case 'd': case 'e': if (*s == ' ') s++; if (!_num(&s, 2, &v)) return 0; tm->tm_mday = v; break;
+        case 'H': if (!_num(&s, 2, &v)) return 0; tm->tm_hour = v; break;
+        case 'M': if (!_num(&s, 2, &v)) return 0; tm->tm_min = v; break;
+        case 'S': if (!_num(&s, 2, &v)) return 0; tm->tm_sec = v; break;
+        case 'b': case 'B': case 'h':
+            for (i = 0; i < 12; i++) {
+                const char *m = _mon[i];
+                const char *p = s;
+
+                while (*m && (*p | 32) == *m) { p++; m++; }
+                if (!*m) { s = p; break; }
+            }
+            if (i == 12) return 0;
+            tm->tm_mon = i;
+            break;
+        case '%': if (*s++ != '%') return 0; break;
+        default: return 0;
+        }
+    }
+    return (char *)s;
 }

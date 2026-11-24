@@ -34,6 +34,7 @@ double        strtod(const char *s, char **end);
 
 int  abs(int v);
 long labs(long v);
+long long llabs(long long v);
 int  rand(void);
 void srand(unsigned seed);
 
@@ -44,5 +45,12 @@ const char *strerror(int err);
 
 long long strtoll(const char *s, char **end, int base);
 #define alloca(n) __builtin_alloca(n)
+
+long random(void);
+void srandom(unsigned seed);
+
+char *realpath(const char *path, char *resolved);
+int mkstemp(char *tmpl);
+char *mkdtemp(char *tmpl);
 
 #endif

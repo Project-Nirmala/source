@@ -25,6 +25,8 @@ struct blkdev *blkcache_create(struct blkdrv *drv, unsigned nbuf);
 struct blkdrv *virtio_blk_probe(void);
 struct blkdrv *virtio_blk_attach(uint16_t iobase);
 struct blkdrv *ahci_probe(void);
+struct blkdrv *nvme_probe(void);
+struct blkdrv *ide_probe(void);
 
 void           blk_register(struct blkdrv *d);
 unsigned       blk_count(void);

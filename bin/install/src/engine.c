@@ -165,9 +165,15 @@ int inst_valid_username(const char *s)
 
 int inst_plan(const char *name, struct inst_layout *lay, char *err, size_t errsz)
 {
+    return inst_plan_ex(name, 0, 0, 0, lay, err, errsz);
+}
+
+int inst_plan_ex(const char *name, unsigned esp_mib, unsigned swap_mib, unsigned root_mib, struct inst_layout *lay,
+                 char *err, size_t errsz)
+{
     struct inst_disk disks[INST_MAX_DISKS];
     char path[24];
-    uint64_t total;
+    uint64_t total, avail;
     int count, i, fd, root = 0, found = 0;
 
     count = inst_list(disks, INST_MAX_DISKS);
@@ -187,16 +193,59 @@ int inst_plan(const char *name, struct inst_layout *lay, char *err, size_t errsz
         snprintf(err, errsz, "%s holds the running system.", path);
         return -1;
     }
-    lay->total = total;
-    lay->esp_first = 2048;
-    lay->esp_sectors = (uint64_t)INST_ESP_MIB * 2048;
-    lay->root_first = lay->esp_first + lay->esp_sectors;
-    if (total < lay->root_first + (uint64_t)INST_MIN_ROOT_MIB * 2048 + 34) {
-        snprintf(err, errsz, "The disk is too small. At least %u MiB is needed.", INST_ESP_MIB + INST_MIN_ROOT_MIB + 2);
+    if (!esp_mib)
+        esp_mib = INST_ESP_MIB;
+    if (esp_mib < INST_MIN_ESP_MIB || esp_mib > INST_MAX_ESP_MIB) {
+        snprintf(err, errsz, "The boot partition must be %u-%u MiB.", INST_MIN_ESP_MIB, INST_MAX_ESP_MIB);
         return -1;
     }
-    lay->root_sectors = (total - 34) - lay->root_first + 1;
+    if (swap_mib > 1024u * 1024u || root_mib > 1024u * 1024u * 1024u) {
+        snprintf(err, errsz, "A partition size is out of range.");
+        return -1;
+    }
+    memset(lay, 0, sizeof(*lay));
+    lay->total = total;
+    lay->esp_first = 2048;
+    lay->esp_sectors = (uint64_t)esp_mib * 2048;
+    if (swap_mib) {
+        lay->swap_first = lay->esp_first + lay->esp_sectors;
+        lay->swap_sectors = (uint64_t)swap_mib * 2048;
+    }
+    lay->root_first = lay->esp_first + lay->esp_sectors + lay->swap_sectors;
+    if (total < lay->root_first + (uint64_t)INST_MIN_ROOT_MIB * 2048 + 34) {
+        snprintf(err, errsz, "The disk is too small. At least %u MiB is needed.",
+                 esp_mib + swap_mib + INST_MIN_ROOT_MIB + 2);
+        return -1;
+    }
+    avail = (total - 34) - lay->root_first + 1;
+    if (root_mib) {
+        if (root_mib < INST_MIN_ROOT_MIB || (uint64_t)root_mib * 2048 > avail) {
+            snprintf(err, errsz, "The root size must be %u-%lu MiB with these other partitions.", INST_MIN_ROOT_MIB,
+                     (unsigned long)(avail / 2048));
+            return -1;
+        }
+        lay->root_sectors = (uint64_t)root_mib * 2048;
+    } else {
+        lay->root_sectors = avail;
+    }
     return 0;
+}
+
+static int swap_format(int fd, uint64_t first, uint64_t nsect)
+{
+    uint8_t hdr[4096];
+    uint64_t pages = nsect / 8;
+    uint32_t last = pages - 1 > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)(pages - 1);
+    unsigned i;
+
+    memset(hdr, 0, sizeof(hdr));
+    hdr[1024] = 1;
+    for (i = 0; i < 4; i++)
+        hdr[1028 + i] = (uint8_t)(last >> (8 * i));
+    memcpy(hdr + 4086, "SWAPSPACE2", 10);
+    if (lseek(fd, (off_t)(first * 512), SEEK_SET) < 0)
+        return -1;
+    return write(fd, hdr, sizeof(hdr)) == (long)sizeof(hdr) ? 0 : -1;
 }
 
 static int zero_range(int fd, uint64_t first_sector, uint64_t bytes)
@@ -230,8 +279,11 @@ int inst_run(const char *name, const struct inst_layout *lay, const struct accou
              const struct sysconfig *cfg, inst_progress cb, void *ctx, char *err, size_t errsz)
 {
     char path[24], guid[37], conf[512];
-    struct gpt_part p[2];
+    struct gpt_part p[3], *rp;
+    struct sysconfig local;
+    const struct sysconfig *scfg = cfg;
     struct fat32 *fs;
+    unsigned np = 1;
     int fd, root = 0;
 
     if (cfg && inst_config_check(cfg, err, errsz) < 0)
@@ -255,12 +307,29 @@ int inst_run(const char *name, const struct inst_layout *lay, const struct accou
     p[0].first = lay->esp_first;
     p[0].last = lay->esp_first + lay->esp_sectors - 1;
     strcpy(p[0].name, "EFI System");
-    gpt_guid_parse(GPT_TYPE_LEMON, p[1].type);
-    gpt_random_guid(p[1].guid);
-    p[1].first = lay->root_first;
-    p[1].last = lay->root_first + lay->root_sectors - 1;
-    strcpy(p[1].name, "nirmala-root");
-    if (gpt_write(fd, lay->total, p, 2) < 0 || zero_range(fd, p[1].first, 1u << 20) < 0) {
+    if (lay->swap_sectors) {
+        gpt_guid_parse(GPT_TYPE_SWAP, p[np].type);
+        gpt_random_guid(p[np].guid);
+        p[np].first = lay->swap_first;
+        p[np].last = lay->swap_first + lay->swap_sectors - 1;
+        strcpy(p[np].name, "nirmala-swap");
+        if (cfg)
+            local = *cfg;
+        else
+            memset(&local, 0, sizeof(local));
+        gpt_guid_format(p[np].guid, local.swap_partuuid);
+        scfg = &local;
+        np++;
+    }
+    rp = &p[np];
+    gpt_guid_parse(GPT_TYPE_LEMON, rp->type);
+    gpt_random_guid(rp->guid);
+    rp->first = lay->root_first;
+    rp->last = lay->root_first + lay->root_sectors - 1;
+    strcpy(rp->name, "nirmala-root");
+    np++;
+    if (gpt_write(fd, lay->total, p, np) < 0 || zero_range(fd, rp->first, 1u << 20) < 0 ||
+        (lay->swap_sectors && swap_format(fd, lay->swap_first, lay->swap_sectors) < 0)) {
         snprintf(err, errsz, "Cannot write the partition table.");
         goto fail;
     }
@@ -275,7 +344,7 @@ int inst_run(const char *name, const struct inst_layout *lay, const struct accou
         snprintf(err, errsz, "Cannot open the boot partition.");
         goto fail;
     }
-    gpt_guid_format(p[1].guid, guid);
+    gpt_guid_format(rp->guid, guid);
     snprintf(conf, sizeof(conf),
              "timeout: 3\nserial: yes\n\n/NirmalaSYS\n    protocol: limine\n    path: boot():/boot/nirmala\n"
              "    module_path: boot():/boot/initrd.tar\n    cmdline: root=PARTUUID=%s\n", guid);
@@ -305,8 +374,8 @@ int inst_run(const char *name, const struct inst_layout *lay, const struct accou
     }
 
     cb(5, ctx);
-    if (mkroot(fd, p[1].first, lay->root_sectors, acc, nacc, cfg) < 0) {
-        zero_range(fd, p[1].first, 1u << 20);
+    if (mkroot(fd, rp->first, lay->root_sectors, acc, nacc, scfg) < 0) {
+        zero_range(fd, rp->first, 1u << 20);
         snprintf(err, errsz, "Cannot create the root filesystem.");
         goto fail;
     }

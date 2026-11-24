@@ -67,7 +67,7 @@ static int collect_accounts(struct account *acc)
     memset(acc, 0, sizeof(*acc) * MKROOT_MAX_ACCOUNTS);
     snprintf(acc[0].name, sizeof(acc[0].name), "root");
     snprintf(acc[0].home, sizeof(acc[0].home), "/root");
-    snprintf(acc[0].shell, sizeof(acc[0].shell), "/bin/sh");
+    snprintf(acc[0].shell, sizeof(acc[0].shell), "/bin/dash");
     printf("\nSet up the administrator account.\n");
     if (ask_password("root", acc[0].password, sizeof(acc[0].password)) < 0)
         return -1;
@@ -86,11 +86,33 @@ static int collect_accounts(struct account *acc)
         return -1;
     snprintf(acc[1].name, sizeof(acc[1].name), "%s", name);
     snprintf(acc[1].home, sizeof(acc[1].home), "/home/%s", name);
-    snprintf(acc[1].shell, sizeof(acc[1].shell), "/bin/sh");
+    snprintf(acc[1].shell, sizeof(acc[1].shell), "/bin/dash");
     acc[1].uid = acc[1].gid = 1000;
     if (ask_password(name, acc[1].password, sizeof(acc[1].password)) < 0)
         return -1;
     return 2;
+}
+
+static unsigned ask_mib(const char *prompt, unsigned def)
+{
+    char buf[32];
+    int tries;
+
+    for (tries = 0; tries < 3; tries++) {
+        char *e;
+        unsigned long v;
+
+        printf("%s [%u]: ", prompt, def);
+        if (readline(buf, sizeof(buf)) < 0)
+            return def;
+        if (!buf[0])
+            return def;
+        v = strtoul(buf, &e, 10);
+        if (*e == 0 && v <= 0x7FFFFFFFul)
+            return (unsigned)v;
+        printf("Enter a whole number of MiB.\n");
+    }
+    return def;
 }
 
 static void progress(int step, void *ctx)
@@ -107,6 +129,7 @@ int ui_text_run(const char *target)
     struct inst_layout lay;
     struct sysconfig cfg;
     char answer[64], choice[16], err[128];
+    unsigned esp_mib = 0, swap_mib = 0, root_mib = 0;
     int count, nacc, i, r;
 
     printf("NirmalaSYS installer\n\n");
@@ -128,7 +151,16 @@ int ui_text_run(const char *target)
             snprintf(choice, sizeof(choice), "%s", answer);
         target = choice;
     }
-    if (inst_plan(target, &lay, err, sizeof(err)) < 0) {
+    printf("\nPartitioning\n  1) Automatic (%u MiB boot, the rest root, no swap)\n  2) Manual (choose sizes, optional swap)\n"
+           "Choice [1]: ", INST_ESP_MIB);
+    if (readline(answer, sizeof(answer)) < 0)
+        return 1;
+    if (answer[0] == '2') {
+        esp_mib = ask_mib("Boot (EFI) partition size in MiB", INST_ESP_MIB);
+        swap_mib = ask_mib("Swap partition size in MiB (0 = none)", 0);
+        root_mib = ask_mib("Root partition size in MiB (0 = use the rest of the disk)", 0);
+    }
+    if (inst_plan_ex(target, esp_mib, swap_mib, root_mib, &lay, err, sizeof(err)) < 0) {
         dprintf(2, "install: %s\n", err);
         return 1;
     }
@@ -141,12 +173,14 @@ int ui_text_run(const char *target)
     }
 
     printf("\nInstallation summary\n"
-           "  Disk:         %s (%lu MiB, GPT, whole disk)\n"
-           "  Partition 1:  EFI System, %u MiB, FAT32 (boot loader, kernel)\n"
-           "  Partition 2:  nirmala-root, %lu MiB, lemonfs (/)\n"
-           "  Accounts:     %s%s%s\n",
-           target, (unsigned long)(lay.total / 2048), INST_ESP_MIB, (unsigned long)(lay.root_sectors / 2048),
-           acc[0].name, nacc > 1 ? ", " : "", nacc > 1 ? acc[1].name : "");
+           "  Disk:         %s (%lu MiB, GPT)\n"
+           "  Partition 1:  EFI System, %lu MiB, FAT32 (boot loader, kernel)\n",
+           target, (unsigned long)(lay.total / 2048), (unsigned long)(lay.esp_sectors / 2048));
+    if (lay.swap_sectors)
+        printf("  Partition 2:  nirmala-swap, %lu MiB, swap\n", (unsigned long)(lay.swap_sectors / 2048));
+    printf("  Partition %d:  nirmala-root, %lu MiB, lemonfs (/)\n", lay.swap_sectors ? 3 : 2,
+           (unsigned long)(lay.root_sectors / 2048));
+    printf("  Accounts:     %s%s%s\n", acc[0].name, nacc > 1 ? ", " : "", nacc > 1 ? acc[1].name : "");
     printf("\nAll data on %s will be erased. Type yes to continue: ", target);
     if (readline(answer, sizeof(answer)) < 0 || strcmp(answer, "yes")) {
         printf("Cancelled.\n");

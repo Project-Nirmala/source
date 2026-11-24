@@ -17,6 +17,7 @@ struct gpt_part {
 #define GPT_TYPE_ESP    "C12A7328-F81F-11D2-BA4B-00A0C93EC93B"
 #define GPT_TYPE_LEMON  "4E52494D-414C-4C45-4D4F-4E4653000001"
 #define GPT_TYPE_LINUX  "0FC63DAF-8483-4772-8E79-3D69D8477DE4"
+#define GPT_TYPE_SWAP   "0657FD6D-A4AB-43C4-84E5-0933C84B4F4F"
 
 uint32_t crc32_calc(const void *data, size_t n);
 int      gpt_guid_parse(const char *s, uint8_t out[16]);

@@ -140,7 +140,7 @@ static long sys_open(uint64_t path_uva, uint64_t flags, uint64_t mode)
         struct vnode *old;
 
         existed = vfs_lookup(path, curproc->cwd, &old) == 0;
-        r = vfs_create(path, curproc->cwd, (uint32_t)mode & 07777, (flags & O_EXCL) != 0, &vn);
+        r = vfs_create(path, curproc->cwd, (uint32_t)mode & ~curproc->cmask & 07777, (flags & O_EXCL) != 0, &vn);
     } else {
         existed = 1;
         r = vfs_lookup(path, curproc->cwd, &vn);
@@ -170,6 +170,8 @@ static long sys_open(uint64_t path_uva, uint64_t flags, uint64_t mode)
     if (!f)
         return -ENOMEM;
     fd = fd_install(curproc, f);
+    if (fd >= 0 && (flags & O_CLOEXEC))
+        curproc->fdflags[fd] = FD_CLOEXEC;
     if (fd < 0) {
         file_unref(f);
         return -EMFILE;
@@ -266,7 +268,65 @@ static long sys_dup2(uint64_t oldfd, uint64_t newfd)
     if (curproc->fds[newfd])
         fd_close((int)newfd);
     curproc->fds[newfd] = file_ref(f);
+    curproc->fdflags[newfd] = 0;
     return (long)newfd;
+}
+
+static long sys_umask(uint64_t mask)
+{
+    uint32_t old = curproc->cmask;
+
+    curproc->cmask = (uint32_t)mask & 0777;
+    return old;
+}
+
+static long sys_fcntl(uint64_t fd, uint64_t cmd, uint64_t arg)
+{
+    struct file *f = fd_get((int)fd);
+    int i;
+
+    if (!f)
+        return -EBADF;
+    switch (cmd) {
+    case F_DUPFD:
+    case F_DUPFD_CLOEXEC:
+        if (arg >= NOFILE)
+            return -EINVAL;
+        for (i = (int)arg; i < NOFILE; i++) {
+            if (!curproc->fds[i]) {
+                curproc->fds[i] = file_ref(f);
+                curproc->fdflags[i] = cmd == F_DUPFD_CLOEXEC ? FD_CLOEXEC : 0;
+                return i;
+            }
+        }
+        return -EMFILE;
+    case F_GETFD:
+        return curproc->fdflags[fd] & FD_CLOEXEC;
+    case F_SETFD:
+        curproc->fdflags[fd] = (uint8_t)(arg & FD_CLOEXEC);
+        return 0;
+    case F_GETFL:
+        return f->flags;
+    case F_SETFL:
+        f->flags = (f->flags & ~(O_APPEND | O_NONBLOCK)) | ((int)arg & (O_APPEND | O_NONBLOCK));
+        return 0;
+    default:
+        return -EINVAL;
+    }
+}
+
+static long sys_fchdir(uint64_t fd)
+{
+    struct file *f = fd_get((int)fd);
+
+    if (!f)
+        return -EBADF;
+    if (f->vn->type != VDIR)
+        return -ENOTDIR;
+    if (vfs_perm(f->vn, VP_X) < 0)
+        return -EACCES;
+    curproc->cwd = f->vn;
+    return 0;
 }
 
 static long sys_wait4(int64_t pid, uint64_t status_uva, int options)
@@ -463,7 +523,7 @@ static long sys_mkdir(uint64_t path_uva, uint64_t mode)
     char path[PATH_MAX];
     long r = user_path(path_uva, path);
 
-    return r < 0 ? r : vfs_mkdir(path, curproc->cwd, (uint32_t)mode & 01777);
+    return r < 0 ? r : vfs_mkdir(path, curproc->cwd, (uint32_t)mode & ~curproc->cmask & 01777);
 }
 
 static long sys_rmdir(uint64_t path_uva)
@@ -869,7 +929,10 @@ void syscall_dispatch(struct trapframe *tf)
     case SYS_setkeymap:   r = sys_setkeymap(tf->rdi); break;
     case SYS_fsync:
     case SYS_sync:        r = blk_sync_all(); break;
-    case SYS_umask:       r = 022; break;
+    case SYS_umask:       r = sys_umask(tf->rdi); break;
+    case SYS_fcntl:       r = sys_fcntl(tf->rdi, tf->rsi, tf->rdx); break;
+    case SYS_fchdir:      r = sys_fchdir(tf->rdi); break;
+    case SYS_setsid:      curproc->pgid = curproc->pid; r = curproc->pid; break;
     case SYS_close:       r = sys_close(tf->rdi); break;
     case SYS_ioctl:       r = sys_ioctl(tf->rdi, tf->rsi, tf->rdx); break;
     case SYS_lseek:       r = sys_lseek(tf->rdi, (int64_t)tf->rsi, tf->rdx); break;

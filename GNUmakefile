@@ -79,7 +79,7 @@ QEMUDISK := -drive file=$(DISK),if=none,id=disk0,format=raw \
 endif
 DISKDEP  := $(DISK)
 endif
-QEMUNET  := -netdev user,id=net0 -device virtio-net-pci,netdev=net0,disable-modern=on,disable-legacy=off
+QEMUNET  ?= -netdev user,id=net0 -device virtio-net-pci,netdev=net0,disable-modern=on,disable-legacy=off
 QEMUFLAGS:= -M q35 -m $(QEMU_MEM) -cdrom $(ISO) $(QEMUCON) $(QEMUDISK) $(QEMUNET) \
             -display none -no-reboot -no-shutdown
 
@@ -94,6 +94,19 @@ PROGS    := sbin/init bin/login bin/sh bin/ls bin/cat bin/echo bin/vi bin/mkdir 
             bin/touch bin/wc bin/head bin/tail bin/sort bin/uniq bin/grep bin/tee bin/uname bin/sleep \
             bin/true bin/false bin/pwd bin/clear bin/resize bin/df bin/kill bin/test bin/date bin/ttydemo bin/utest bin/selftest bin/lsblk bin/dd bin/sync bin/gpt bin/fat bin/wget bin/ping \
             bin/chmod bin/chown bin/id bin/loadkeys bin/reboot
+SBASE_REPLACE := ls cat echo mkdir rmdir rm cp mv touch wc head tail sort uniq grep tee uname \
+            sleep true false pwd kill test date dd sync chmod chown
+SBASE_EXTRA := basename cal chgrp chroot cksum cmp cols comm cut dirname du ed env expand expr \
+            find flock fold hostname join link ln logname md5sum mkfifo mknod mktemp nice nl \
+            nohup od paste pathchk printenv printf readlink renice rev sed seq setsid sha1sum \
+            sha224sum sha256sum sha384sum sha512-224sum sha512-256sum sha512sum split sponge \
+            strings tar time tr tsort tty unexpand unlink uudecode uuencode which whoami xargs \
+            xinstall yes
+SBASE_TOOLS   := $(SBASE_REPLACE) $(SBASE_EXTRA)
+ifeq ($(CONFIG_SBASE),y)
+PROGS := $(filter-out $(addprefix bin/,$(SBASE_REPLACE)),$(PROGS))
+SBASE_ROOT := $(addprefix $(BUILD)/rootfs/bin/,$(SBASE_TOOLS))
+endif
 LIBC_SRC := $(wildcard lib/libc/*.c lib/libdisk/*.c)
 LIBC_OBJ := $(patsubst %.c,$(BUILD)/%.o,$(LIBC_SRC))
 LIBC_A   := $(BUILD)/lib/libc/libc.a
@@ -101,7 +114,7 @@ CRT0     := $(BUILD)/lib/libc/crt0.o
 MPROGS   := bin/nirmake bin/nirld bin/nircc
 CPROGS   := bin/install
 ALIASES  := bin/make:bin/nirmake bin/ld:bin/nirld bin/[:bin/test bin/poweroff:bin/reboot bin/halt:bin/reboot
-ROOTBINS := $(addprefix $(BUILD)/rootfs/,$(PROGS) $(MPROGS) $(CPROGS)) $(BUILD)/rootfs/bin/dash $(BUILD)/rootfs/bin/cc
+ROOTBINS := $(addprefix $(BUILD)/rootfs/,$(PROGS) $(MPROGS) $(CPROGS)) $(BUILD)/rootfs/bin/dash $(BUILD)/rootfs/bin/cc $(SBASE_ROOT)
 ROOTETC  := $(patsubst rootfs/%,$(BUILD)/rootfs/%,$(shell find rootfs -type f)) $(BUILD)/rootfs/usr/share/doc/LICENSE \
             $(BUILD)/rootfs/usr/lib/crt0.o $(BUILD)/rootfs/usr/lib/libc.a \
             $(BUILD)/rootfs/usr/share/examples/hello/hello.o $(BUILD)/rootfs/usr/include/.installed \
@@ -193,8 +206,21 @@ $(BUILD)/rootfs/bin/dash: scripts/build-dash.sh $(CRT0) $(LIBC_A) $(wildcard lib
 	$(Q)LIBC_A=$(abspath $(LIBC_A)) CRT0=$(abspath $(CRT0)) scripts/build-dash.sh . $(BUILD)/dash >/dev/null
 	$(Q)cp $(BUILD)/dash/dash $@
 
+ifeq ($(CONFIG_SBASE),y)
+$(BUILD)/sbase/.built: scripts/build-sbase.sh $(CRT0) $(LIBC_A) $(wildcard lib/libc/include/*.h)
+	$(LOG) "SBASE" "$(BUILD)/sbase"
+	@mkdir -p $(BUILD)/sbase
+	$(Q)LIBC_A=$(abspath $(LIBC_A)) CRT0=$(abspath $(CRT0)) scripts/build-sbase.sh . $(BUILD)/sbase $(SBASE_TOOLS) >/dev/null
+	@touch $@
+
+$(SBASE_ROOT): $(BUILD)/rootfs/bin/%: $(BUILD)/sbase/.built $(AUTOCONF)
+	$(LOG) "CP" "$@"
+	@mkdir -p $(dir $@)
+	$(Q)cp $(BUILD)/sbase/bin/$* $@
+endif
+
 define PROG_RULE
-$$(BUILD)/rootfs/$(1): $$(BUILD)/$(1)/$(notdir $(1)).o $$(CRT0) $$(LIBC_A) lib/libc/user.ld
+$$(BUILD)/rootfs/$(1): $$(BUILD)/$(1)/$(notdir $(1)).o $$(CRT0) $$(LIBC_A) lib/libc/user.ld $$(AUTOCONF)
 	$$(LOG) "LD" "$$@"
 	@mkdir -p $$(dir $$@)
 	$$(Q)$$(LD) $$(ULDFLAGS) -o $$@ $$(CRT0) $$< $$(LIBC_A)
@@ -281,7 +307,7 @@ $(INITRD): $(ROOTBINS) $(ROOTETC) $(LIMINE_EFI)
 limine:
 	$(LOG) "LIMINE" "$(LIMINE)"
 	@test -d $(LIMINE) || git clone --depth=1 --branch=$(LIMINE_BRANCH) \
-		https://github.com $(LIMINE)
+		https://github.com/Limine-Bootloader/Limine.git $(LIMINE)
 	$(Q)$(MAKE) -C $(LIMINE)
 
 iso: $(ISO)

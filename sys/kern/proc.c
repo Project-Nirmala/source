@@ -61,6 +61,7 @@ int fd_install(struct proc *p, struct file *f)
     for (i = 0; i < NOFILE; i++) {
         if (!p->fds[i]) {
             p->fds[i] = f;
+            p->fdflags[i] = 0;
             return i;
         }
     }
@@ -81,6 +82,7 @@ int fd_close(int fd)
     if (!f)
         return -1;
     curproc->fds[fd] = NULL;
+    curproc->fdflags[fd] = 0;
     file_unref(f);
     return 0;
 }
@@ -152,6 +154,7 @@ struct proc *proc_create_exec(const char *path, char *const argv[], char *const 
     if (slot < 0)
         return NULL;
     p = kzalloc(sizeof(*p));
+    p->cmask = 022;
     if (!p)
         return NULL;
 
@@ -222,6 +225,8 @@ long proc_fork(const struct trapframe *tf)
     memcpy(proc_fpu(c), proc_fpu(par), FPU_AREA_SIZE);
     c->cwd = par->cwd;
     c->uid = par->uid;
+    c->cmask = par->cmask;
+    memcpy(c->fdflags, par->fdflags, sizeof(c->fdflags));
     memcpy(c->sig_handler, par->sig_handler, sizeof(c->sig_handler));
     c->sig_restorer = par->sig_restorer;
     c->sig_mask = par->sig_mask;

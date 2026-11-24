@@ -3,4 +3,6 @@
 
 #include <time.h>
 
+int utimes(const char *path, const struct timeval tv[2]);
+
 #endif

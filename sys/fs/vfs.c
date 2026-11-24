@@ -47,6 +47,7 @@ void vfs_init(const void *image, size_t size)
 {
     struct blkdrv *vdrv = virtio_blk_probe();
     struct blkdrv *sdrv = ahci_probe();
+    struct blkdrv *ndrv = nvme_probe();
     struct blkdrv *drv = NULL, *rparent = NULL;
     struct blkdev *dev = NULL;
     uint64_t rstart = 0, rnsect = 0;
@@ -54,6 +55,10 @@ void vfs_init(const void *image, size_t size)
     char spec[96];
     bool persistent = false, fresh = false;
 
+    if (!sdrv)
+        sdrv = ndrv;
+    if (!sdrv)
+        sdrv = ide_probe();
     devfs_add_blob("initrd", image, size);
     devfs_init();
     if (!cmdline_value("root", spec, sizeof(spec)))

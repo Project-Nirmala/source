@@ -13,11 +13,19 @@
 #define INT_MAX    2147483647
 #define INT_MIN    (-INT_MAX - 1)
 #define UINT_MAX   4294967295U
+#define FILENAME_MAX 4096
+#define NZERO 20
+#define _POSIX_ARG_MAX 4096
+#define _POSIX_PATH_MAX 256
+#define _POSIX_NAME_MAX 14
+#define _POSIX_HOST_NAME_MAX 255
 #define LONG_MAX   9223372036854775807L
 #define LONG_MIN   (-LONG_MAX - 1L)
 #define ULONG_MAX  18446744073709551615UL
 #define PATH_MAX   1024
 #define MB_LEN_MAX 1
 #define NAME_MAX   255
+
+#define SSIZE_MAX 0x7fffffffffffffffL
 
 #endif

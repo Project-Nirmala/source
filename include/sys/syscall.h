@@ -62,6 +62,9 @@
 #define SYS_lchown      94
 #define SYS_sethostname 170
 #define SYS_reboot      169
+#define SYS_fcntl       72
+#define SYS_fchdir      81
+#define SYS_setsid      112
 #define SYS_rt_sigaction 13
 #define SYS_rt_sigprocmask 14
 #define SYS_rt_sigreturn 15

@@ -24,6 +24,13 @@
 #define SIGTSTP 20
 #define SIGTTIN 21
 #define SIGTTOU 22
+#define SIGURG  23
+#define SIGXCPU 24
+#define SIGXFSZ 25
+#define SIGVTALRM 26
+#define SIGPROF 27
+#define SIGPOLL 29
+#define SIGSYS  31
 #define SIGWINCH 28
 #define NSIG    32
 
@@ -58,5 +65,8 @@ int          sigdelset(sigset_t *set, int sig);
 int          sigismember(const sigset_t *set, int sig);
 
 int sigsuspend(const sigset_t *mask);
+
+#define SA_RESTART  0x10000000
+#define SA_NOCLDSTOP 1
 
 #endif

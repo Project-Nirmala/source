@@ -35,4 +35,6 @@ char *stpcpy(char *d, const char *s);
 char *strchrnul(const char *s, int c);
 char *strsignal(int sig);
 
+int ffs(int v);
+
 #endif

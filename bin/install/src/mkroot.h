@@ -21,6 +21,7 @@ struct sysconfig {
     char hostname[32];   /* /etc/hostname : applied by init */
     int  net_static;     /* /etc/network  : "dhcp" or "static IP MASK GATEWAY DNS" */
     char ip[16], mask[16], gw[16], dns[16];
+    char swap_partuuid[37]; /* /etc/swap    : "PARTUUID=<guid>" of the swap partition, if any */
 };
 
 /*

@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <time.h>
 #include <utime.h>
+#include <stdlib.h>
+#include <string.h>
 #include <errno.h>
 #include <string.h>
 #include <sys/ioctl.h>
@@ -66,8 +68,35 @@ ssize_t write(int fd, const void *buf, size_t n)
     return fix(raw(SYS_write, fd, (long)buf, (long)n));
 }
 
+static char *dirpath[256];
+
+static void savepath(int fd, const char *p)
+{
+    char buf[1024];
+    size_t l = 0;
+
+    if (fd < 0 || fd >= 256)
+        return;
+    free(dirpath[fd]);
+    dirpath[fd] = 0;
+    if (p[0] != '/') {
+        if (!getcwd(buf, sizeof(buf)))
+            return;
+        l = strlen(buf);
+        if (l + strlen(p) + 2 > sizeof(buf))
+            return;
+        if (l && buf[l - 1] != '/')
+            buf[l++] = '/';
+        strcpy(buf + l, p);
+        dirpath[fd] = strdup(buf);
+    } else {
+        dirpath[fd] = strdup(p);
+    }
+}
+
 int open(const char *path, int flags, ...)
 {
+    int fd;
     va_list ap;
     int mode = 0;
 
@@ -76,11 +105,18 @@ int open(const char *path, int flags, ...)
         mode = va_arg(ap, int);
         va_end(ap);
     }
-    return (int)fix(raw(SYS_open, (long)path, flags, mode));
+    fd = (int)fix(raw(SYS_open, (long)path, flags, mode));
+    if (fd >= 0)
+        savepath(fd, path);
+    return fd;
 }
 
 int close(int fd)
 {
+    if (fd >= 0 && fd < 256 && dirpath[fd]) {
+        free(dirpath[fd]);
+        dirpath[fd] = 0;
+    }
     return (int)fix(raw(SYS_close, fd, 0, 0));
 }
 
@@ -458,3 +494,178 @@ int execl(const char *path, const char *arg0, ...)
     return execve(path, (char *const *)argv, environ);
 }
 
+
+#include <fcntl.h>
+#include <sys/stat.h>
+
+int creat(const char *path, mode_t mode)
+{
+    return open(path, O_WRONLY | O_CREAT | O_TRUNC, mode);
+}
+
+int lchown(const char *path, uid_t uid, gid_t gid)
+{
+    return chown(path, uid, gid);
+}
+
+ssize_t readlink(const char *path, char *buf, size_t n)
+{
+    errno = EINVAL;
+    return -1;
+}
+
+int symlink(const char *target, const char *path)
+{
+    errno = ENOSYS;
+    return -1;
+}
+
+int mknod(const char *path, mode_t mode, dev_t dev)
+{
+    errno = ENOSYS;
+    return -1;
+}
+
+static const char *atpath(int dirfd, const char *path, char *out, size_t n);
+
+int fstatat(int dirfd, const char *path, struct stat *st, int flags)
+{
+    char buf[1024];
+    const char *p = atpath(dirfd, path, buf, sizeof(buf));
+
+    if (!p)
+        return -1;
+    return (flags & AT_SYMLINK_NOFOLLOW) ? lstat(p, st) : stat(p, st);
+}
+
+int utimensat(int dirfd, const char *path, const struct timespec times[2], int flags)
+{
+    struct utimbuf u;
+
+    char buf[1024];
+    const char *p = atpath(dirfd, path, buf, sizeof(buf));
+
+    if (!p)
+        return -1;
+    path = p;
+    struct stat st;
+    time_t now = time(0);
+
+    if (!times)
+        return utime(path, 0);
+    if (times[0].tv_nsec == UTIME_OMIT || times[1].tv_nsec == UTIME_OMIT) {
+        if (stat(path, &st) < 0)
+            return -1;
+    }
+    u.actime = times[0].tv_nsec == UTIME_OMIT ? st.st_atime :
+               times[0].tv_nsec == UTIME_NOW ? now : times[0].tv_sec;
+    u.modtime = times[1].tv_nsec == UTIME_OMIT ? st.st_mtime :
+                times[1].tv_nsec == UTIME_NOW ? now : times[1].tv_sec;
+    return utime(path, &u);
+}
+
+#include <stdarg.h>
+#include <stdlib.h>
+#include <string.h>
+
+static const char *atpath(int dirfd, const char *path, char *out, size_t n)
+{
+    size_t l;
+
+    if (path[0] == '/' || dirfd == AT_FDCWD)
+        return path;
+    if (dirfd < 0 || dirfd >= 256 || !dirpath[dirfd]) {
+        errno = EBADF;
+        return 0;
+    }
+    l = strlen(dirpath[dirfd]);
+    if (l + strlen(path) + 2 > n) {
+        errno = ENAMETOOLONG;
+        return 0;
+    }
+    memcpy(out, dirpath[dirfd], l);
+    out[l] = '/';
+    strcpy(out + l + 1, path);
+    return out;
+}
+
+int openat(int dirfd, const char *path, int flags, ...)
+{
+    char buf[1024];
+    const char *p = atpath(dirfd, path, buf, sizeof(buf));
+    va_list ap;
+    mode_t mode;
+    int fd;
+
+    if (!p)
+        return -1;
+    va_start(ap, flags);
+    mode = va_arg(ap, mode_t);
+    va_end(ap);
+    fd = open(p, flags, mode);
+    return fd;
+}
+
+int unlinkat(int dirfd, const char *path, int flags)
+{
+    char buf[1024];
+    const char *p = atpath(dirfd, path, buf, sizeof(buf));
+
+    if (!p)
+        return -1;
+    return (flags & AT_REMOVEDIR) ? rmdir(p) : unlink(p);
+}
+
+int fchmod(int fd, mode_t mode)
+{
+    return (int)fix(raw(SYS_fchmod, fd, (long)mode, 0));
+}
+
+int fchown(int fd, uid_t uid, gid_t gid)
+{
+    return (int)fix(raw(SYS_fchown, fd, (long)uid, (long)gid));
+}
+
+int fchownat(int dirfd, const char *path, uid_t uid, gid_t gid, int flags)
+{
+    char buf[1024];
+    const char *p = atpath(dirfd, path, buf, sizeof(buf));
+
+    if (!p)
+        return -1;
+    return chown(p, uid, gid);
+}
+
+int faccessat(int dirfd, const char *path, int mode, int flags)
+{
+    char buf[1024];
+    const char *p = atpath(dirfd, path, buf, sizeof(buf));
+
+    if (!p)
+        return -1;
+    return access(p, mode);
+}
+
+int execlp(const char *file, const char *arg0, ...)
+{
+    char *argv[64];
+    va_list ap;
+    int i = 0;
+
+    argv[i++] = (char *)arg0;
+    va_start(ap, arg0);
+    while (i < 63 && (argv[i] = va_arg(ap, char *)))
+        i++;
+    va_end(ap);
+    argv[i] = 0;
+    return execvp(file, argv);
+}
+
+int futimens(int fd, const struct timespec times[2])
+{
+    if (fd < 0 || fd >= 256 || !dirpath[fd]) {
+        errno = EBADF;
+        return -1;
+    }
+    return utimensat(AT_FDCWD, dirpath[fd], times, 0);
+}

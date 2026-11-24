@@ -136,3 +136,16 @@ config LIMINE_BRANCH
 	default "v11.x-binary"
 
 endmenu
+
+menu "Userland"
+
+config SBASE
+	bool "Build core utilities from sbase"
+	default y
+	help
+	  Replace the built-in cat, ls, cp, mv, rm, grep, sort and the other
+	  basic tools with sbase, and add the rest of sbase (sed, find, xargs,
+	  tar, tr, cut, ...). The source is fetched at build time from a pinned
+	  commit. Set SBASE_SRC to a local checkout to build offline.
+
+endmenu

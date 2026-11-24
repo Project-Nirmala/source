@@ -33,6 +33,8 @@ struct proc {
     uint64_t    sig_restorer;
     uint64_t    sig_mask;
     int         pgid;
+    uint32_t    cmask;
+    uint8_t     fdflags[NOFILE];
     uint32_t    uid, gid;
     struct file *fds[NOFILE];
     struct vnode *cwd;

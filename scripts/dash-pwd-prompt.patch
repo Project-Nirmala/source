@@ -1,0 +1,44 @@
+--- a/src/parser.c
++++ b/src/parser.c
+@@ -1551,6 +1551,32 @@
+ 	}
+ }
+ 
++static const char *
++pwdprompt(const char *tail)
++{
++	const char *pwd = lookupvar("PWD");
++	const char *home = lookupvar("HOME");
++	size_t hl = home ? strlen(home) : 0;
++	size_t tl = strlen(tail);
++	size_t pl;
++	char *buf;
++
++	if (!pwd || !*pwd)
++		return tail;
++	pl = strlen(pwd);
++	buf = stalloc(pl + tl + 3);
++	if (hl > 1 && !strncmp(pwd, home, hl) && (pwd[hl] == '/' || !pwd[hl])) {
++		buf[0] = '~';
++		memcpy(buf + 1, pwd + hl, pl - hl);
++		pl = pl - hl + 1;
++	} else {
++		memcpy(buf, pwd, pl);
++	}
++	buf[pl] = ' ';
++	memcpy(buf + pl + 1, tail, tl + 1);
++	return buf;
++}
++
+ const char *
+ expandstr(const char *ps)
+ {
+@@ -1616,6 +1642,8 @@
+ 		return nullstr;
+ 	case 1:
+ 		prompt = ps1val();
++		if (!strcmp(prompt, "$ ") || !strcmp(prompt, "# "))
++			return pwdprompt(prompt);
+ 		break;
+ 	case 2:
+ 		prompt = ps2val();

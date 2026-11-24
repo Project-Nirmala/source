@@ -248,6 +248,13 @@ static int write_settings(struct lemon *l, const struct sysconfig *c)
         return -1;
     if (c->hostname[0] && write_line(l, "hostname", c->hostname) < 0)
         return -1;
+    if (c->swap_partuuid[0]) {
+        char sw[64];
+
+        snprintf(sw, sizeof(sw), "PARTUUID=%s", c->swap_partuuid);
+        if (write_line(l, "swap", sw) < 0)
+            return -1;
+    }
     if (c->net_static)
         snprintf(net, sizeof(net), "static %s %s %s %s", c->ip, c->mask, c->gw, c->dns);
     else

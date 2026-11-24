@@ -454,11 +454,11 @@ static int status_of(int st)
     return 128 + WTERMSIG(st);
 }
 
-static void set_fg(int pid)
+static void set_fg(int pgrp)
 {
     if (!interactive)
         return;
-    ioctl(0, TIOCSPGRP, &pid);
+    ioctl(0, TIOCSPGRP, &pgrp);
 }
 
 static char   gpool[8192];
@@ -612,6 +612,7 @@ static int run_pipeline(int s, int e)
     struct cmd cmds[MAXCMD];
     pid_t pids[MAXCMD];
     int n = 0, i, prev = -1, st = 0, spawned = 0;
+    pid_t pgid = 0;
 
     memset(cmds, 0, sizeof(cmds));
     glen = 0;
@@ -690,6 +691,8 @@ static int run_pipeline(int s, int e)
             break;
         }
         if (pid == 0) {
+            if (interactive)
+                setpgid(0, pgid ? pgid : getpid());
             if (prev >= 0) {
                 dup2(prev, 0);
                 close(prev);
@@ -729,6 +732,11 @@ static int run_pipeline(int s, int e)
             }
             child_run(&cmds[i]);
         }
+        if (interactive) {
+            if (!pgid)
+                pgid = pid;
+            setpgid(pid, pgid);
+        }
         pids[spawned++] = pid;
         if (prev >= 0)
             close(prev);
@@ -741,7 +749,7 @@ static int run_pipeline(int s, int e)
     if (!spawned)
         return 1;
 
-    set_fg(pids[spawned - 1]);
+    set_fg(pgid);
     for (i = 0; i < spawned; i++) {
         int w = 0;
 

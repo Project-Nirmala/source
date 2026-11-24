@@ -128,6 +128,15 @@ void exec_commit(struct proc *p, const struct exec_image *img, struct trapframe 
         if (p->sig_handler[i] > 1)
             p->sig_handler[i] = 0;
     p->sig_restorer = 0;
+    for (int i = 0; i < NOFILE; i++) {
+        if (p->fds[i] && (p->fdflags[i] & 1)) {
+            struct file *cf = p->fds[i];
+
+            p->fds[i] = NULL;
+            file_unref(cf);
+        }
+        p->fdflags[i] = 0;
+    }
     p->sig_mask = 0;
     fpu_reset(proc_fpu(p));
     fpu_restore(proc_fpu(p));

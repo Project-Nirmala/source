@@ -19,7 +19,7 @@ static struct {
     size_t         q_head;
     size_t         q_count;
     bool           eof_pending;
-    int            fg_pid;
+    int            fg_pgrp;
     unsigned short rows;
     unsigned short cols;
 } tty;
@@ -127,8 +127,8 @@ void tty_input(uint8_t c)
             serial_putc('\n');
         }
         tty.line_len = 0;
-        if (tty.fg_pid > 0)
-            proc_signal(tty.fg_pid, SIGINT);
+        if (tty.fg_pgrp > 0)
+            proc_signal_pgrp(tty.fg_pgrp, SIGINT);
         return;
     }
 
@@ -241,14 +241,14 @@ long tty_ioctl(uint64_t req, uint64_t arg)
         tty.t = nt;
         return 0;
     case TIOCGPGRP:
-        pid = tty.fg_pid;
+        pid = tty.fg_pgrp;
         return copy_to_user(arg, &pid, sizeof(pid));
     case TIOCSPGRP:
         if (copy_from_user(&pid, arg, sizeof(pid)) < 0)
             return -EFAULT;
         if (pid < 0)
             return -EINVAL;
-        tty.fg_pid = pid;
+        tty.fg_pgrp = pid;
         return 0;
     case TIOCGWINSZ:
         ws.ws_row = 24;

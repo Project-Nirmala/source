@@ -53,5 +53,16 @@ mode_t umask(mode_t mask);
 #define S_IROTH 0004
 #define S_IWOTH 0002
 #define S_IXOTH 0001
+#define S_IRWXU 0700
+#define S_IRWXG 0070
+#define S_IRWXO 0007
+
+int fchmod(int fd, mode_t mode);
+int mkfifo(const char *path, mode_t mode);
+int fchmodat(int dirfd, const char *path, mode_t mode, int flags);
+int futimens(int fd, const struct timespec times[2]);
+int mknod(const char *path, mode_t mode, dev_t dev);
+int fstatat(int dirfd, const char *path, struct stat *st, int flags);
+int utimensat(int dirfd, const char *path, const struct timespec times[2], int flags);
 
 #endif

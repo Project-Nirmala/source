@@ -9,6 +9,10 @@ struct netinfo {
     uint16_t up;
 };
 
+bool e1000_probe(uint8_t mac[6]);
+int  e1000_send(const void *frame, size_t len);
+void e1000_poll(void (*rx)(const uint8_t *, size_t));
+
 struct sock;
 
 bool vnet_probe(uint8_t mac[6]);

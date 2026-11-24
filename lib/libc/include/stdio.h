@@ -29,6 +29,8 @@ int    fflush(FILE *f);
 size_t fread(void *buf, size_t size, size_t n, FILE *f);
 size_t fwrite(const void *buf, size_t size, size_t n, FILE *f);
 int    fgetc(FILE *f);
+ssize_t getline(char **line, size_t *n, FILE *f);
+FILE  *fmemopen(void *buf, size_t size, const char *mode);
 int    getc(FILE *f);
 int    getchar(void);
 int    ungetc(int c, FILE *f);
@@ -48,6 +50,7 @@ int    fileno(FILE *f);
 int    setvbuf(FILE *f, char *buf, int mode, size_t size);
 void   setbuf(FILE *f, char *buf);
 int    remove(const char *path);
+int    rename(const char *from, const char *to);
 void   perror(const char *msg);
 
 int printf(const char *fmt, ...);
@@ -59,5 +62,8 @@ int vprintf(const char *fmt, va_list ap);
 int vfprintf(FILE *f, const char *fmt, va_list ap);
 int vsprintf(char *buf, const char *fmt, va_list ap);
 int vsnprintf(char *buf, size_t size, const char *fmt, va_list ap);
+
+int sscanf(const char *s, const char *fmt, ...);
+int vsscanf(const char *s, const char *fmt, va_list ap);
 
 #endif

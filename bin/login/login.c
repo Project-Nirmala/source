@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <termios.h>
+#include <sys/ioctl.h>
 #include "sha256.h"
 
 #define LINEMAX 128
@@ -197,7 +198,7 @@ int main(void)
             envp[ne++] = e_tz;
         }
         envp[ne] = 0;
-        argv[0] = "sh";
+        argv[0] = strrchr(a.shell, '/') ? strrchr(a.shell, '/') + 1 : a.shell;
         argv[1] = 0;
         /* Drop root before the shell starts: group first, then user, and never continue if either fails. */
         if (a.uid != 0 || a.gid != 0) {
@@ -207,7 +208,13 @@ int main(void)
             }
         }
         chdir(a.home);
+        setpgid(0, 0);
+        tcsetpgrp(0, getpgrp());
         execve(a.shell, argv, envp);
+        if (strcmp(a.shell, "/bin/sh")) {
+            argv[0] = "sh";
+            execve("/bin/sh", argv, envp);
+        }
         say("login: cannot start shell\n");
         _exit(1);
     }

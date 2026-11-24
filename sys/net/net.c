@@ -116,7 +116,10 @@ static void eth_send(const uint8_t *dst, uint16_t type, const void *pl, size_t l
         memset(frame + sizeof(*e) + len, 0, 60 - sizeof(*e) - len);
         len = 60 - sizeof(*e);
     }
-    vnet_send(frame, len + sizeof(*e));
+    if (nic == 2)
+        e1000_send(frame, len + sizeof(*e));
+    else
+        vnet_send(frame, len + sizeof(*e));
 }
 
 static const uint8_t bcast[6] = { 255, 255, 255, 255, 255, 255 };
@@ -598,8 +601,10 @@ static void rx_frame(const uint8_t *f, size_t len)
 
 void net_poll(void)
 {
-    if (nic)
+    if (nic == 1)
         vnet_poll(rx_frame);
+    else if (nic == 2)
+        e1000_poll(rx_frame);
 }
 
 void net_init(void)
@@ -607,6 +612,9 @@ void net_init(void)
     if (vnet_probe(mymac)) {
         nic = 1;
         kprintf("[ok] net: virtio-net %x:%x:%x:%x:%x:%x\n", mymac[0], mymac[1], mymac[2], mymac[3], mymac[4], mymac[5]);
+    } else if (e1000_probe(mymac)) {
+        nic = 2;
+        kprintf("[ok] net: e1000 %x:%x:%x:%x:%x:%x\n", mymac[0], mymac[1], mymac[2], mymac[3], mymac[4], mymac[5]);
     }
 }
 
