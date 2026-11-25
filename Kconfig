@@ -109,6 +109,14 @@ config QEMU_SATA
 	  Use an AHCI disk instead of virtio-blk, matching what VirtualBox
 	  and most real machines provide.
 
+config QEMU_NVME
+	bool "Attach the QEMU disk as NVMe"
+	default n
+	depends on !NODISK
+	help
+	  Use an NVMe disk instead of virtio-blk. Ignored when the SATA
+	  option is also enabled.
+
 config DISK_SIZE
 	string "Disk image size"
 	default "64M"

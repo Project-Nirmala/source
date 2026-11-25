@@ -220,8 +220,16 @@ long tty_ioctl(uint64_t req, uint64_t arg)
     struct winsize ws;
     int pid;
     int avail;
+    uint8_t byte;
 
     switch (req) {
+    case TIOCSTI:
+        if (curproc->uid != 0)
+            return -EPERM;
+        if (copy_from_user(&byte, arg, sizeof(byte)) < 0)
+            return -EFAULT;
+        tty_input(byte);
+        return 0;
     case FIONREAD:
         avail = (int)tty.q_count;
         return copy_to_user(arg, &avail, sizeof(avail));

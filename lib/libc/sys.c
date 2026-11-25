@@ -23,6 +23,7 @@
 #include <sys/syscall.h>
 #include <netcfg.h>
 #include <sys/reboot.h>
+#include <sys/swap.h>
 
 int errno;
 
@@ -393,6 +394,16 @@ int gethostname(char *name, size_t size)
 int setkeymap(const char *name)
 {
     return (int)fix(raw(SYS_setkeymap, (long)name, 0, 0));
+}
+
+int swapon(const char *path, int flags)
+{
+    return (int)fix(raw(SYS_swapon, (long)path, flags, 0));
+}
+
+int swapoff(const char *path)
+{
+    return (int)fix(raw(SYS_swapoff, (long)path, 0, 0));
 }
 
 int reboot(int cmd)

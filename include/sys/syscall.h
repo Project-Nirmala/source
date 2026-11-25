@@ -61,6 +61,8 @@
 #define SYS_fchown      93
 #define SYS_lchown      94
 #define SYS_sethostname 170
+#define SYS_swapon      167
+#define SYS_swapoff     168
 #define SYS_reboot      169
 #define SYS_fcntl       72
 #define SYS_fchdir      81

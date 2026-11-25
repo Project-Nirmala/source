@@ -1,6 +1,8 @@
 #include <cpu.h>
 #include <kern.h>
 #include <proc.h>
+#include <mm.h>
+#include <swap.h>
 
 static const char *const exc_name[32] = {
     "Divide Error", "Debug", "NMI", "Breakpoint", "Overflow",
@@ -66,6 +68,13 @@ void trap_dispatch(struct trapframe *tf)
     uint64_t v = tf->vector;
 
     if (v < 32) {
+        if (v == 14 && !(tf->err & 1) && curproc && curproc->pml4 != kernel_pml4) {
+            uint64_t fault_va;
+
+            __asm__ volatile("movq %%cr2, %0" : "=r"(fault_va));
+            if (fault_va < USER_TOP && swap_fault(fault_va) == 0)
+                return;
+        }
         if (tf->cs & 3) {
             uint64_t cr2;
             __asm__ volatile("movq %%cr2, %0" : "=r"(cr2));
@@ -84,11 +93,18 @@ void trap_dispatch(struct trapframe *tf)
 
     if (v < 48) {
         int irq = (int)(v - 32);
+        struct proc *me = curproc;
+
         if (pic_is_spurious(irq))
             return;
         pic_eoi(irq);
-        if (irq_handlers[irq])
+        if (irq_handlers[irq]) {
+            if (me)
+                me->in_irq++;
             irq_handlers[irq](tf);
+            if (me)
+                me->in_irq--;
+        }
         return;
     }
 

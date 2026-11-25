@@ -63,6 +63,7 @@ extern struct vnode console_vnode;
 void          vfs_init(const void *image, size_t size);
 struct vnode *vfs_root(void);
 struct vnode *devfs_root(void);
+void          devfs_add_chr(struct vnode *vn);
 int           vfs_lookup(const char *path, struct vnode *cwd, struct vnode **out);
 int           vfs_create(const char *path, struct vnode *cwd, uint32_t mode, int excl, struct vnode **out);
 int           vfs_mkdir(const char *path, struct vnode *cwd, uint32_t mode);

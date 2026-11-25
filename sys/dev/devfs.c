@@ -5,9 +5,13 @@
 #include <sys/errno.h>
 #include <sys/blkio.h>
 #include <cmdline.h>
+#include <swap.h>
+#include <mouse.h>
+#include <fbcon.h>
 
 #define MAX_NODES 48
 #define MAX_PARTS 16
+#define MAX_CHR   6
 
 struct devnode {
     struct vnode   vn;
@@ -35,6 +39,7 @@ static struct devnode nodes[MAX_NODES];
 static struct memfile memfiles[4];
 static struct partdrv partdrvs[2];
 static struct vnode   dev_dir;
+static struct vnode  *chrdevs[MAX_CHR];
 
 static uint32_t le32(const uint8_t *p)
 {
@@ -65,7 +70,7 @@ static long dev_write(struct vnode *vn, uint64_t off, const void *buf, size_t n)
     struct devnode *d = vn->priv;
     uint64_t size = d->nsect * 512;
 
-    if (blk_overlaps_root(d->drv, d->start, d->nsect))
+    if (blk_overlaps_root(d->drv, d->start, d->nsect) || swap_overlaps(d->drv, d->start, d->nsect))
         return -EBUSY;
     if (off >= size)
         return -ENOSPC;
@@ -105,6 +110,9 @@ static long dev_ioctl(struct vnode *vn, uint64_t req, uint64_t arg)
         return copy_to_user(arg, &v64, sizeof(v64)) < 0 ? -EFAULT : 0;
     case NIR_BLKROOT:
         v = blk_overlaps_root(d->drv, d->start, d->nsect);
+        return copy_to_user(arg, &v, sizeof(v)) < 0 ? -EFAULT : 0;
+    case NIR_BLKSWAP:
+        v = swap_overlaps(d->drv, d->start, d->nsect);
         return copy_to_user(arg, &v, sizeof(v)) < 0 ? -EFAULT : 0;
     }
     return -ENOTTY;
@@ -155,6 +163,8 @@ static struct devnode *part_add(struct blkdrv *drv, unsigned num, uint64_t first
     if (first >= drv->nsectors || count == 0 || first + count > drv->nsectors)
         return NULL;
     memcpy(name, drv->name, len);
+    if (len && drv->name[len - 1] >= '0' && drv->name[len - 1] <= '9')
+        name[len++] = 'p';
     while (num) {
         digits[k++] = (char)('0' + num % 10);
         num /= 10;
@@ -263,6 +273,11 @@ static int dev_lookup(struct vnode *dir, const char *name, struct vnode **out)
             *out = &memfiles[i].vn;
             return 0;
         }
+    for (i = 0; i < MAX_CHR; i++)
+        if (chrdevs[i] && !strcmp(chrdevs[i]->name, name)) {
+            *out = chrdevs[i];
+            return 0;
+        }
     return -ENOENT;
 }
 
@@ -286,6 +301,15 @@ static int dev_readdir(struct vnode *dir, uint64_t idx, char *name, struct vnode
         if (idx-- == 0) {
             memcpy(name, memfiles[i].vn.name, strlen(memfiles[i].vn.name) + 1);
             *ent = &memfiles[i].vn;
+            return 1;
+        }
+    }
+    for (i = 0; i < MAX_CHR; i++) {
+        if (!chrdevs[i])
+            continue;
+        if (idx-- == 0) {
+            memcpy(name, chrdevs[i]->name, strlen(chrdevs[i]->name) + 1);
+            *ent = chrdevs[i];
             return 1;
         }
     }
@@ -332,6 +356,22 @@ struct vnode *devfs_root(void)
     return &dev_dir;
 }
 
+void devfs_add_chr(struct vnode *vn)
+{
+    unsigned i;
+
+    for (i = 0; i < MAX_CHR; i++)
+        if (!chrdevs[i]) {
+            if (!vn->ino)
+                vn->ino = vfs_next_ino();
+            if (!vn->nlink)
+                vn->nlink = 1;
+            vn->parent = &dev_dir;
+            chrdevs[i] = vn;
+            return;
+        }
+}
+
 void devfs_init(void)
 {
     unsigned i;
@@ -349,6 +389,11 @@ void devfs_init(void)
         node_add(drv->name, drv, 0, drv->nsectors, true);
         scan_disk(drv);
     }
+    devfs_add_chr(&console_vnode);
+    if (mouse_present())
+        devfs_add_chr(&mouse_vnode);
+    if (fbcon_text_ready())
+        devfs_add_chr(&fbtext_vnode);
 }
 
 void devfs_attach(struct vnode *root)

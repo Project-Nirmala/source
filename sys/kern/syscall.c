@@ -14,6 +14,7 @@
 #include <net.h>
 #include <power.h>
 #include <kbd.h>
+#include <swap.h>
 
 #define IO_CHUNK 512
 
@@ -450,6 +451,8 @@ static long sys_sysinfo(uint64_t uva)
     si.uptime = (int64_t)(pit_ticks() / pit_hz());
     si.totalram = pmm_total_pages() * PAGE_SIZE;
     si.freeram = pmm_free_pages() * PAGE_SIZE;
+    si.totalswap = swap_total_bytes();
+    si.freeswap = swap_free_bytes();
     si.procs = (uint16_t)proc_count();
     si.mem_unit = 1;
     return copy_to_user(uva, &si, sizeof(si));
@@ -862,6 +865,45 @@ static long sys_setkeymap(uint64_t name_uva)
     return r < 0 ? r : kbd_set_map(name);
 }
 
+static long swap_target(uint64_t path_uva, struct blkdrv **drv, uint64_t *start, uint64_t *nsect,
+                        const char **name)
+{
+    char spec[96];
+    long n;
+
+    if (curproc->uid != 0)
+        return -EPERM;
+    n = copy_str_from_user(spec, path_uva, sizeof(spec));
+    if (n < 0)
+        return n;
+    if (!devfs_resolve_root(spec, drv, start, nsect, name))
+        return -ENOENT;
+    return 0;
+}
+
+static long sys_swapon(uint64_t path_uva, uint64_t flags)
+{
+    struct blkdrv *drv;
+    uint64_t start, nsect;
+    const char *name;
+    long r;
+
+    (void)flags;
+    r = swap_target(path_uva, &drv, &start, &nsect, &name);
+    return r < 0 ? r : swap_on(drv, start, nsect, name);
+}
+
+static long sys_swapoff(uint64_t path_uva)
+{
+    struct blkdrv *drv;
+    uint64_t start, nsect;
+    const char *name;
+    long r;
+
+    r = swap_target(path_uva, &drv, &start, &nsect, &name);
+    return r < 0 ? r : swap_off(drv, start);
+}
+
 long sys_socket(uint64_t, uint64_t, uint64_t);
 long sys_connect(uint64_t, uint64_t, uint64_t);
 long sys_bind(uint64_t, uint64_t, uint64_t);
@@ -924,6 +966,8 @@ void syscall_dispatch(struct trapframe *tf)
     case SYS_setuid:      r = sys_setuid_gid(tf->rdi, 0); break;
     case SYS_setgid:      r = sys_setuid_gid(tf->rdi, 1); break;
     case SYS_sethostname: r = sys_sethostname(tf->rdi, tf->rsi); break;
+    case SYS_swapon:      r = sys_swapon(tf->rdi, tf->rsi); break;
+    case SYS_swapoff:     r = sys_swapoff(tf->rdi); break;
     case SYS_reboot:      r = sys_reboot(tf->rdi, tf->rsi, tf->rdx); break;
     case SYS_netset:      r = sys_netset(tf->rdi); break;
     case SYS_setkeymap:   r = sys_setkeymap(tf->rdi); break;

@@ -119,32 +119,45 @@ int inst_check_system(void)
     return readable("/dev/kernel") && readable("/dev/initrd") && readable("/usr/share/limine/BOOTX64.EFI");
 }
 
+static int probe_disk(const char *name, struct inst_disk *d)
+{
+    char path[24];
+    uint64_t bytes = 0;
+    int fd, root = 0;
+
+    memset(d, 0, sizeof(*d));
+    snprintf(d->name, sizeof(d->name), "%s", name);
+    snprintf(path, sizeof(path), "/dev/%s", d->name);
+    fd = open(path, O_RDONLY);
+    if (fd < 0)
+        return 0;
+    ioctl(fd, BLKGETSIZE64, &bytes);
+    ioctl(fd, NIR_BLKMODEL, d->model);
+    ioctl(fd, NIR_BLKROOT, &root);
+    close(fd);
+    d->mib = bytes >> 20;
+    d->busy = root;
+    return 1;
+}
+
 int inst_list(struct inst_disk *out, int max)
 {
     static const char *const prefix[] = { "sd", "vd" };
+    char name[INST_NAME_MAX];
     int count = 0;
-    unsigned p, l;
+    unsigned p, l, c, n;
 
     for (p = 0; p < 2; p++)
-        for (l = 0; l < 8 && count < max; l++) {
-            char path[24];
-            struct inst_disk *d = &out[count];
-            uint64_t bytes = 0;
-            int fd, root = 0;
-
-            memset(d, 0, sizeof(*d));
-            snprintf(d->name, sizeof(d->name), "%s%c", prefix[p], (char)('a' + l));
-            snprintf(path, sizeof(path), "/dev/%s", d->name);
-            fd = open(path, O_RDONLY);
-            if (fd < 0)
-                continue;
-            ioctl(fd, BLKGETSIZE64, &bytes);
-            ioctl(fd, NIR_BLKMODEL, d->model);
-            ioctl(fd, NIR_BLKROOT, &root);
-            close(fd);
-            d->mib = bytes >> 20;
-            d->busy = root;
-            count++;
+        for (l = 0; l < INST_LETTER_DISKS && count < max; l++) {
+            snprintf(name, sizeof(name), "%s%c", prefix[p], (char)('a' + l));
+            if (probe_disk(name, &out[count]))
+                count++;
+        }
+    for (c = 0; c < INST_NVME_CTRLS; c++)
+        for (n = 1; n <= INST_NVME_NS && count < max; n++) {
+            snprintf(name, sizeof(name), "nvme%un%u", c, n);
+            if (probe_disk(name, &out[count]))
+                count++;
         }
     return count;
 }

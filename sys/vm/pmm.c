@@ -54,7 +54,14 @@ void pmm_init(struct limine_memmap_response *mm)
         if (!bm_test(pfn)) { bm_set(pfn); free_pages--; }
 }
 
-paddr_t pmm_alloc(void)
+static int (*reclaim_fn)(void);
+
+void pmm_set_reclaim(int (*fn)(void))
+{
+    reclaim_fn = fn;
+}
+
+paddr_t pmm_try_alloc(void)
 {
     uint64_t words = (total_pages + 63) / 64, n;
 
@@ -69,6 +76,15 @@ paddr_t pmm_alloc(void)
         }
     }
     return 0;
+}
+
+paddr_t pmm_alloc(void)
+{
+    paddr_t pa = pmm_try_alloc();
+
+    while (!pa && reclaim_fn && reclaim_fn())
+        pa = pmm_try_alloc();
+    return pa;
 }
 
 paddr_t pmm_alloc_zero(void)

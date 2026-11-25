@@ -73,6 +73,9 @@ ifndef NODISK
 ifeq ($(CONFIG_QEMU_SATA),y)
 QEMUDISK := -drive file=$(DISK),if=none,id=disk0,format=raw \
             -device ide-hd,drive=disk0,bus=ide.0
+else ifeq ($(CONFIG_QEMU_NVME),y)
+QEMUDISK := -drive file=$(DISK),if=none,id=disk0,format=raw \
+            -device nvme,drive=disk0,serial=nirmala0
 else
 QEMUDISK := -drive file=$(DISK),if=none,id=disk0,format=raw \
             -device virtio-blk-pci,drive=disk0,disable-modern=on,disable-legacy=off
@@ -93,7 +96,7 @@ ULDFLAGS := -m elf_x86_64 -nostdlib -static -z max-page-size=0x1000 -z noexecsta
 PROGS    := sbin/init bin/login bin/sh bin/ls bin/cat bin/echo bin/vi bin/mkdir bin/rmdir bin/rm bin/cp bin/mv \
             bin/touch bin/wc bin/head bin/tail bin/sort bin/uniq bin/grep bin/tee bin/uname bin/sleep \
             bin/true bin/false bin/pwd bin/clear bin/resize bin/df bin/kill bin/test bin/date bin/ttydemo bin/utest bin/selftest bin/lsblk bin/dd bin/sync bin/gpt bin/fat bin/wget bin/ping \
-            bin/chmod bin/chown bin/id bin/loadkeys bin/reboot
+            bin/chmod bin/chown bin/id bin/loadkeys bin/reboot bin/swapon bin/mkswap
 SBASE_REPLACE := ls cat echo mkdir rmdir rm cp mv touch wc head tail sort uniq grep tee uname \
             sleep true false pwd kill test date dd sync chmod chown
 SBASE_EXTRA := basename cal chgrp chroot cksum cmp cols comm cut dirname du ed env expand expr \
@@ -111,9 +114,9 @@ LIBC_SRC := $(wildcard lib/libc/*.c lib/libdisk/*.c)
 LIBC_OBJ := $(patsubst %.c,$(BUILD)/%.o,$(LIBC_SRC))
 LIBC_A   := $(BUILD)/lib/libc/libc.a
 CRT0     := $(BUILD)/lib/libc/crt0.o
-MPROGS   := bin/nirmake bin/nirld bin/nircc
+MPROGS   := bin/nirmake bin/nirld bin/nircc bin/gpmd
 CPROGS   := bin/install
-ALIASES  := bin/make:bin/nirmake bin/ld:bin/nirld bin/[:bin/test bin/poweroff:bin/reboot bin/halt:bin/reboot
+ALIASES  := bin/make:bin/nirmake bin/ld:bin/nirld bin/[:bin/test bin/poweroff:bin/reboot bin/halt:bin/reboot bin/swapoff:bin/swapon
 ROOTBINS := $(addprefix $(BUILD)/rootfs/,$(PROGS) $(MPROGS) $(CPROGS)) $(BUILD)/rootfs/bin/dash $(BUILD)/rootfs/bin/cc $(SBASE_ROOT)
 ROOTETC  := $(patsubst rootfs/%,$(BUILD)/rootfs/%,$(shell find rootfs -type f)) $(BUILD)/rootfs/usr/share/doc/LICENSE \
             $(BUILD)/rootfs/usr/lib/crt0.o $(BUILD)/rootfs/usr/lib/libc.a \

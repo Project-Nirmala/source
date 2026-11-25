@@ -6,6 +6,10 @@
 #include "mkroot.h"
 
 #define INST_MAX_DISKS 16
+#define INST_NAME_MAX 16
+#define INST_LETTER_DISKS 8
+#define INST_NVME_CTRLS 4
+#define INST_NVME_NS 4
 #define INST_STEPS 7
 #define INST_ESP_MIB 100u
 #define INST_MIN_ROOT_MIB 64u
@@ -13,7 +17,7 @@
 #define INST_MAX_ESP_MIB 1024u
 
 struct inst_disk {
-    char     name[8];
+    char     name[INST_NAME_MAX];
     uint64_t mib;
     char     model[48];
     int      busy;

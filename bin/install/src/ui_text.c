@@ -139,7 +139,7 @@ int ui_text_run(const char *target)
         return 1;
     }
     for (i = 0; i < count; i++)
-        printf("  %d) %-5s %8lu MiB  %s%s\n", i + 1, disks[i].name, (unsigned long)disks[i].mib, disks[i].model,
+        printf("  %d) %-8s %8lu MiB  %s%s\n", i + 1, disks[i].name, (unsigned long)disks[i].mib, disks[i].model,
                disks[i].busy ? "  (in use, cannot be installed to)" : "");
     if (!target) {
         printf("\nInstall to which disk (number or name)? ");

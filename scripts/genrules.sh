@@ -3,8 +3,8 @@ set -e
 LC_ALL=C
 export LC_ALL
 
-PROGS="sbin/init bin/login bin/sh bin/ls bin/cat bin/echo bin/vi bin/mkdir bin/rmdir bin/rm bin/cp bin/mv bin/touch bin/wc bin/head bin/tail bin/sort bin/uniq bin/grep bin/tee bin/uname bin/sleep bin/true bin/false bin/pwd bin/clear bin/resize bin/df bin/kill bin/test bin/date bin/reboot bin/id bin/chmod bin/chown bin/loadkeys bin/ttydemo bin/utest bin/selftest"
-MPROGS="bin/nirmake bin/nirld bin/nircc"
+PROGS="sbin/init bin/login bin/sh bin/ls bin/cat bin/echo bin/vi bin/mkdir bin/rmdir bin/rm bin/cp bin/mv bin/touch bin/wc bin/head bin/tail bin/sort bin/uniq bin/grep bin/tee bin/uname bin/sleep bin/true bin/false bin/pwd bin/clear bin/resize bin/df bin/kill bin/test bin/date bin/reboot bin/id bin/chmod bin/chown bin/loadkeys bin/ttydemo bin/utest bin/selftest bin/swapon bin/mkswap"
+MPROGS="bin/nirmake bin/nirld bin/nircc bin/gpmd"
 CPROGS="bin/install"
 ARCH=amd64
 

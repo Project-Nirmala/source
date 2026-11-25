@@ -3,7 +3,7 @@ include build/rules.mk
 
 .SUFFIXES:
 
-ALIASES = bin/make:bin/nirmake bin/ld:bin/nirld bin/[:bin/test bin/poweroff:bin/reboot bin/halt:bin/reboot
+ALIASES = bin/make:bin/nirmake bin/ld:bin/nirld bin/[:bin/test bin/poweroff:bin/reboot bin/halt:bin/reboot bin/swapoff:bin/swapon
 ROOTETC = $(ROOTCOPY) build/rootfs/usr/share/doc/LICENSE \
           build/rootfs/usr/lib/crt0.o build/rootfs/usr/lib/libc.a \
           build/rootfs/usr/share/examples/hello/hello.o build/rootfs/usr/include/.installed \

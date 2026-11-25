@@ -212,7 +212,7 @@ static int screen_disks(const struct inst_disk *disks, int count)
 
     begin("Select a disk", " Up/Down: select   Enter: choose   q: back");
     for (i = 0; i < count; i++) {
-        snprintf(lines[i], sizeof(lines[i]), "%-6s %8lu MiB   %s%s", disks[i].name, (unsigned long)disks[i].mib,
+        snprintf(lines[i], sizeof(lines[i]), "%-8s %8lu MiB   %s%s", disks[i].name, (unsigned long)disks[i].mib,
                  disks[i].model, disks[i].busy ? "   (in use)" : "");
         items[i] = lines[i];
         disabled[i] = disks[i].busy;

@@ -1,17 +1,19 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <sys/wait.h>
 
-#define F_READ   0x01
-#define F_WRITE  0x02
-#define F_EOF    0x04
-#define F_ERR    0x08
-#define F_UNBUF  0x10
-#define F_STATIC 0x20
+#define F_READ     0x01
+#define F_WRITE    0x02
+#define F_EOF      0x04
+#define F_ERR      0x08
+#define F_UNBUF    0x10
+#define F_STATIC   0x20
+#define F_USERBUF  0x40
 
 struct _FILE {
     int            fd;
@@ -62,17 +64,27 @@ static int flush_out(FILE *f)
     return r;
 }
 
-static void drop_input(FILE *f)
+static int drop_input(FILE *f)
 {
-    if (f->rlen > f->rpos || f->ungot >= 0)
-        lseek(f->fd, -(off_t)(f->rlen - f->rpos) - (f->ungot >= 0 ? 1 : 0), SEEK_CUR);
+    if (f->rlen > f->rpos || f->ungot >= 0) {
+        off_t delta = -(off_t)(f->rlen - f->rpos) - (f->ungot >= 0 ? 1 : 0);
+
+        if (lseek(f->fd, delta, SEEK_CUR) < 0 && errno != ESPIPE) {
+            f->rpos = f->rlen = 0;
+            f->ungot = -1;
+            return -1;
+        }
+    }
     f->rpos = f->rlen = 0;
     f->ungot = -1;
+    return 0;
 }
 
 static int ensure_buf(FILE *f)
 {
-    if (f->buf || (f->flags & F_UNBUF))
+    if (f->flags & F_UNBUF)
+        return 0;
+    if (f->buf)
         return 0;
     f->buf = malloc(BUFSIZ);
     if (!f->buf) {
@@ -80,6 +92,7 @@ static int ensure_buf(FILE *f)
         return -1;
     }
     f->bufsize = BUFSIZ;
+    f->flags &= ~F_USERBUF;
     return 0;
 }
 
@@ -96,6 +109,15 @@ static int fill(FILE *f)
         return EOF;
     if (f == stdin)
         fflush(NULL);
+    if (f->flags & F_UNBUF) {
+        unsigned char c;
+
+        n = read(f->fd, &c, 1);
+        if (n == 1)
+            return c;
+        f->flags |= n == 0 ? F_EOF : F_ERR;
+        return EOF;
+    }
     ensure_buf(f);
     if (!f->buf) {
         unsigned char c;
@@ -191,7 +213,8 @@ size_t fread(void *vbuf, size_t size, size_t n, FILE *f)
             got += take;
             continue;
         }
-        if (f->buf && want - got >= f->bufsize && (f->flags & F_READ) && !f->wlen) {
+        if (!(f->flags & F_UNBUF) && f->buf && want - got >= f->bufsize &&
+            (f->flags & F_READ) && !f->wlen) {
             long r = read(f->fd, out + got, want - got);
 
             if (r <= 0) {
@@ -224,8 +247,17 @@ size_t fwrite(const void *vbuf, size_t size, size_t n, FILE *f)
         errno = EBADF;
         return 0;
     }
-    if (f->rlen > f->rpos || f->ungot >= 0)
-        drop_input(f);
+    if ((f->rlen > f->rpos || f->ungot >= 0) && drop_input(f) < 0) {
+        f->flags |= F_ERR;
+        return 0;
+    }
+    if (f->flags & F_UNBUF) {
+        if (write_all(f->fd, in, total) < 0) {
+            f->flags |= F_ERR;
+            return 0;
+        }
+        return n;
+    }
     ensure_buf(f);
     if (!f->buf) {
         if (write_all(f->fd, in, total) < 0) {
@@ -297,8 +329,12 @@ int fflush(FILE *f)
     }
     if (f->wlen)
         return flush_out(f);
-    if (f->rlen > f->rpos)
-        drop_input(f);
+    if (f->rlen > f->rpos || f->ungot >= 0) {
+        if (drop_input(f) < 0) {
+            f->flags |= F_ERR;
+            return EOF;
+        }
+    }
     return 0;
 }
 
@@ -351,13 +387,34 @@ int fileno(FILE *f)
     return f->fd;
 }
 
+static void release_buf(FILE *f)
+{
+    if (f->buf && !(f->flags & F_USERBUF))
+        free(f->buf);
+    f->buf = NULL;
+    f->bufsize = 0;
+    f->rpos = f->rlen = f->wlen = 0;
+    f->flags &= ~F_USERBUF;
+}
+
 int setvbuf(FILE *f, char *buf, int mode, size_t size)
 {
-    (void)buf;
-    (void)size;
+    if (mode != _IONBF && mode != _IOFBF && mode != _IOLBF) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (fflush(f) == EOF)
+        return -1;
+    release_buf(f);
     if (mode == _IONBF) {
-        fflush(f);
         f->flags |= F_UNBUF;
+        return 0;
+    }
+    f->flags &= ~F_UNBUF;
+    if (buf && size > 0) {
+        f->buf = (unsigned char *)buf;
+        f->bufsize = size;
+        f->flags |= F_USERBUF;
     }
     return 0;
 }
@@ -440,8 +497,9 @@ static int release(FILE *f)
             *pp = f->next;
             break;
         }
-    free(f->buf);
-    free(f);
+    release_buf(f);
+    if (!(f->flags & F_STATIC))
+        free(f);
     return r;
 }
 
@@ -499,7 +557,8 @@ int pclose(FILE *f)
     pid_t pid = f->pid;
     int status = 0;
 
-    release(f);
+    if (release(f) == EOF)
+        return -1;
     if (waitpid(pid, &status, 0) < 0)
         return -1;
     return status;
@@ -579,23 +638,30 @@ static void out_field(struct out *o, const char *s, size_t len, int width, int l
 }
 
 static void out_num(struct out *o, unsigned long v, unsigned base, int upper, int neg,
-                    int width, int left, int zero, const char *prefix)
+                    int width, int prec, int left, int zero, const char *prefix)
 {
     const char *dig = upper ? "0123456789ABCDEF" : "0123456789abcdef";
-    char t[24], tmp[40];
+    char t[32], tmp[64];
     int n = 0, len = 0, i, plen = prefix ? (int)strlen(prefix) : 0;
 
-    if (v == 0)
-        t[n++] = '0';
-    while (v) {
-        t[n++] = dig[v % base];
-        v /= base;
+    if (prec >= 0)
+        zero = 0;
+    if (!(prec == 0 && v == 0)) {
+        if (v == 0)
+            t[n++] = '0';
+        while (v && n < (int)sizeof(t)) {
+            t[n++] = dig[v % base];
+            v /= base;
+        }
     }
     if (neg)
         tmp[len++] = '-';
     for (i = 0; i < plen; i++)
         tmp[len++] = prefix[i];
-    for (i = n; i > 0; i--)
+    if (prec > n)
+        for (i = 0; i < prec - n && len < (int)sizeof(tmp); i++)
+            tmp[len++] = '0';
+    for (i = n; i > 0 && len < (int)sizeof(tmp); i--)
         tmp[len++] = t[i - 1];
     if (zero && !left && (neg || plen) && width > len) {
         int sign = neg ? 1 : plen;
@@ -677,27 +743,27 @@ static void format(struct out *o, const char *fmt, va_list ap)
             long v = lmod ? va_arg(ap, long) : va_arg(ap, int);
 
             out_num(o, v < 0 ? 0UL - (unsigned long)v : (unsigned long)v, 10, 0, v < 0,
-                    width, left, zero, NULL);
+                    width, prec, left, zero, NULL);
             break;
         }
         case 'u':
             out_num(o, lmod ? va_arg(ap, unsigned long) : va_arg(ap, unsigned), 10, 0, 0,
-                    width, left, zero, NULL);
+                    width, prec, left, zero, NULL);
             break;
         case 'x':
             out_num(o, lmod ? va_arg(ap, unsigned long) : va_arg(ap, unsigned), 16, 0, 0,
-                    width, left, zero, NULL);
+                    width, prec, left, zero, NULL);
             break;
         case 'X':
             out_num(o, lmod ? va_arg(ap, unsigned long) : va_arg(ap, unsigned), 16, 1, 0,
-                    width, left, zero, NULL);
+                    width, prec, left, zero, NULL);
             break;
         case 'o':
             out_num(o, lmod ? va_arg(ap, unsigned long) : va_arg(ap, unsigned), 8, 0, 0,
-                    width, left, zero, NULL);
+                    width, prec, left, zero, NULL);
             break;
         case 'p':
-            out_num(o, (unsigned long)va_arg(ap, void *), 16, 0, 0, width, left, zero, "0x");
+            out_num(o, (unsigned long)va_arg(ap, void *), 16, 0, 0, width, prec, left, zero, "0x");
             break;
         case '%':
             out_char(o, '%');

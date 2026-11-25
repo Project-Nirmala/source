@@ -22,6 +22,8 @@ struct proc {
     uint64_t    ktop;
     uint64_t    pml4;
     uint64_t    brk_start, brk;
+    uint64_t    swap_hand;
+    int         in_irq;
     uint64_t    wake_tick;
     int         slice;
     int         ppid;
@@ -61,6 +63,7 @@ void proc_exit(int code) __noreturn;
 void proc_kill_self(int sig) __noreturn;
 long proc_fork(const struct trapframe *tf);
 struct proc *proc_find(int pid);
+struct proc *proc_slot(int slot);
 int proc_signal_pgrp(int pgid, int sig);
 int sig_deliver(struct trapframe *tf);
 long sys_sigaction(uint64_t sig, uint64_t act, uint64_t old, uint64_t size);

@@ -22,6 +22,21 @@ static bool     private_csi;
 static char     early[EARLY_SIZE];
 static size_t   early_len;
 
+#define SEL_COLOR 15
+#define PTR_COLOR 14
+
+static uint8_t *cells;
+
+static struct {
+    int  col, row;
+    bool visible, drawn;
+} ptr_ov;
+
+static struct {
+    int  start, end;
+    bool active, drawn;
+} sel_ov;
+
 static const uint8_t palette[16][3] = {
     { 0, 0, 0 }, { 170, 0, 0 }, { 0, 170, 0 }, { 170, 85, 0 },
     { 0, 0, 170 }, { 170, 0, 170 }, { 0, 170, 170 }, { 170, 170, 170 },
@@ -64,6 +79,9 @@ static void fill_cells(int x0, int y0, int x1, int y1)
 
     if (x0 >= x1 || y0 >= y1)
         return;
+    if (cells)
+        for (y = (uint32_t)y0; y < (uint32_t)y1; y++)
+            memset(cells + (size_t)y * cols + x0, ' ', (size_t)(x1 - x0));
     xs = (uint32_t)x0 * cw;
     xe = (uint32_t)x1 * cw;
     for (y = (uint32_t)y0 * ch; y < (uint32_t)y1 * ch; y++) {
@@ -80,6 +98,8 @@ static void draw_glyph(int col, int row, char c)
     const uint8_t *g = font8x16[(uint8_t)c >= 0x20 && (uint8_t)c < 0x7F ? (uint8_t)c - 0x20 : '?' - 0x20];
     uint32_t fgc = cur_fg(), bgc = cur_bg(), y, x, sy, sx;
 
+    if (cells)
+        cells[(size_t)row * cols + col] = (uint8_t)c >= 0x20 && (uint8_t)c < 0x7F ? (uint8_t)c : '?';
     for (y = 0; y < FONT_HEIGHT; y++) {
         uint8_t bits = g[y];
 
@@ -109,10 +129,65 @@ static void toggle_cursor(void)
     cursor_drawn = !cursor_drawn;
 }
 
+static int clamp_int(int v, int lo, int hi)
+{
+    return v < lo ? lo : v > hi ? hi : v;
+}
+
+static void xor_cell(int col, int row, uint32_t mask)
+{
+    uint32_t y, x;
+
+    for (y = (uint32_t)row * ch; y < (uint32_t)(row + 1) * ch; y++) {
+        size_t off = (size_t)y * stride + (uint32_t)col * cw;
+        uint32_t *sp = shadow + off, *fp = fb + off;
+
+        for (x = 0; x < (uint32_t)cw; x++)
+            sp[x] = fp[x] = sp[x] ^ mask;
+    }
+}
+
+static void xor_selection(void)
+{
+    uint32_t mask = pack(SEL_COLOR);
+    int i;
+
+    for (i = sel_ov.start; i <= sel_ov.end; i++)
+        xor_cell(i % cols, i / cols, mask);
+}
+
+static void overlays_remove(void)
+{
+    if (ptr_ov.drawn) {
+        xor_cell(ptr_ov.col, ptr_ov.row, pack(PTR_COLOR));
+        ptr_ov.drawn = false;
+    }
+    if (sel_ov.drawn) {
+        xor_selection();
+        sel_ov.drawn = false;
+    }
+}
+
+static void overlays_apply(void)
+{
+    if (sel_ov.active && !sel_ov.drawn) {
+        xor_selection();
+        sel_ov.drawn = true;
+    }
+    if (ptr_ov.visible && !ptr_ov.drawn) {
+        xor_cell(ptr_ov.col, ptr_ov.row, pack(PTR_COLOR));
+        ptr_ov.drawn = true;
+    }
+}
+
 static void scroll_up(void)
 {
     uint32_t used = (uint32_t)rows * ch;
 
+    if (cells) {
+        memmove(cells, cells + cols, (size_t)(rows - 1) * cols);
+        memset(cells + (size_t)(rows - 1) * cols, ' ', (size_t)cols);
+    }
     memmove(shadow, shadow + (size_t)ch * stride, (size_t)(used - ch) * stride * 4);
     {
         uint32_t bg = cur_bg(), y, x;
@@ -332,7 +407,10 @@ void fbcon_putc(char c)
     }
     if (cursor_drawn)
         toggle_cursor();
+    overlays_remove();
+    sel_ov.active = false;
     feed(c);
+    overlays_apply();
     if (cursor_on)
         toggle_cursor();
     /*
@@ -386,6 +464,7 @@ void fbcon_init(struct limine_framebuffer_response *resp)
     cols = (int)(width / cw);
     rows = (int)(height / ch);
     cx = cy = 0;
+    cells = kzalloc((size_t)cols * rows);
     fill_cells(0, 0, cols, rows);
     ready = true;
 
@@ -404,4 +483,64 @@ int fbcon_cols(void)
 int fbcon_rows(void)
 {
     return ready ? rows : 0;
+}
+
+void fbcon_pixel_info(unsigned *w, unsigned *h, unsigned *cellw, unsigned *cellh)
+{
+    *w = ready ? (unsigned)cols * (unsigned)cw : 0;
+    *h = ready ? (unsigned)rows * (unsigned)ch : 0;
+    *cellw = ready ? (unsigned)cw : 0;
+    *cellh = ready ? (unsigned)ch : 0;
+}
+
+bool fbcon_text_ready(void)
+{
+    return ready && cells;
+}
+
+bool fbcon_selection_active(void)
+{
+    return sel_ov.active;
+}
+
+size_t fbcon_text_copy(unsigned start, void *dst, size_t len)
+{
+    size_t total = (size_t)cols * rows;
+
+    if (!cells || start >= total)
+        return 0;
+    if (len > total - start)
+        len = total - start;
+    memcpy(dst, cells + start, len);
+    return len;
+}
+
+void fbcon_set_pointer(int col, int row, bool visible)
+{
+    if (!fbcon_text_ready())
+        return;
+    overlays_remove();
+    ptr_ov.col = clamp_int(col, 0, cols - 1);
+    ptr_ov.row = clamp_int(row, 0, rows - 1);
+    ptr_ov.visible = visible;
+    overlays_apply();
+    __asm__ volatile("sfence" ::: "memory");
+}
+
+void fbcon_set_selection(int start, int end)
+{
+    int last = cols * rows - 1;
+
+    if (!fbcon_text_ready())
+        return;
+    overlays_remove();
+    if (start < 0 || end < start || start > last) {
+        sel_ov.active = false;
+    } else {
+        sel_ov.start = start;
+        sel_ov.end = end > last ? last : end;
+        sel_ov.active = true;
+    }
+    overlays_apply();
+    __asm__ volatile("sfence" ::: "memory");
 }

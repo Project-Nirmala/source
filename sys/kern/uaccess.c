@@ -15,7 +15,7 @@ static int check_range(uint64_t uva, size_t n, bool write)
     end = uva + n;
     for (pg = PAGE_ALIGN_DOWN(uva); pg < end; pg += PAGE_SIZE) {
         uint64_t fl;
-        if (!vmm_translate(curproc->pml4, pg, NULL, &fl) || !(fl & PTE_US))
+        if (!vmm_user_probe(curproc->pml4, pg, &fl) || !(fl & PTE_US))
             return -EFAULT;
         if (write && !(fl & PTE_RW))
             return -EFAULT;
@@ -53,7 +53,7 @@ long copy_str_from_user(char *dst, uint64_t uva, size_t max)
         if (a >= USER_TOP)
             return -EFAULT;
         if ((i == 0 || !(a & (PAGE_SIZE - 1))) &&
-            (!vmm_translate(curproc->pml4, a, NULL, &fl) || !(fl & PTE_US)))
+            (!vmm_user_probe(curproc->pml4, a, &fl) || !(fl & PTE_US)))
             return -EFAULT;
         dst[i] = *(const char *)a;
         if (!dst[i])

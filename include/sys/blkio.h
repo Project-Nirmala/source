@@ -8,5 +8,6 @@
 #define NIR_BLKMODEL 0x4E01UL
 #define NIR_BLKSTART 0x4E02UL
 #define NIR_BLKROOT  0x4E03UL
+#define NIR_BLKSWAP  0x4E04UL
 
 #endif

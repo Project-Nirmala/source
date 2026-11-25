@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <string.h>
 #include <netcfg.h>
+#include <sys/swap.h>
 
 static pid_t spawn(const char *path, char *const argv[], char *const envp[])
 {
@@ -49,6 +50,8 @@ static void apply_settings(void)
         sethostname(line, (size_t)n);
     if (setting("/etc/keymap", line, sizeof(line)) > 0)
         setkeymap(line);
+    if (setting("/etc/swap", line, sizeof(line)) > 0 && swapon(line, 0) < 0)
+        printf("init: cannot enable swap on %s\n", line);
     if (setting("/etc/network", line, sizeof(line)) > 0 && !strncmp(line, "static ", 7)) {
         struct netcfg cfg;
         char *p = line + 7;
@@ -66,6 +69,14 @@ static void apply_settings(void)
             ip_parse(f[3], &cfg.dns) || netset(&cfg) < 0)
             printf("init: cannot apply the static network settings\n");
     }
+}
+
+static void start_pointer_daemon(char *const envp[])
+{
+    static char *const gpmd_argv[] = { "gpmd", 0 };
+
+    if (access("/dev/mouse", F_OK) == 0 && access("/dev/fbcon", F_OK) == 0)
+        spawn("/bin/gpmd", gpmd_argv, envp);
 }
 
 int main(int argc, char **argv, char **envp)
@@ -90,6 +101,7 @@ int main(int argc, char **argv, char **envp)
     mkdir("/tmp", 01777);
     mkdir("/root", 0700);
     apply_settings();
+    start_pointer_daemon(envp);
 
     login = spawn("/bin/login", login_argv, envp);
     for (;;) {

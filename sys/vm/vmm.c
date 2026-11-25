@@ -2,6 +2,7 @@
 #include <mm.h>
 #include <kern.h>
 #include <msr.h>
+#include <swap.h>
 
 #define HEAP_BASE 0xFFFFC00000000000UL
 
@@ -71,12 +72,81 @@ uint64_t vmm_unmap(uint64_t pml4, uint64_t va)
     uint64_t *pte = walk(pml4, va, false, false, false);
     uint64_t pa;
 
-    if (!pte || !(*pte & PTE_P))
+    if (!pte)
+        return 0;
+    if (PTE_IS_SWAPPED(*pte)) {
+        swap_free(PTE_SWAP_SLOT(*pte));
+        *pte = 0;
+        return 0;
+    }
+    if (!(*pte & PTE_P))
         return 0;
     pa = *pte & PTE_ADDR;
     *pte = 0;
     __asm__ volatile("invlpg (%0)" : : "r"(va) : "memory");
     return pa;
+}
+
+uint64_t *vmm_pte(uint64_t pml4, uint64_t va)
+{
+    return walk(pml4, va, false, false, false);
+}
+
+bool vmm_user_probe(uint64_t pml4, uint64_t va, uint64_t *flags)
+{
+    uint64_t *pte = walk(pml4, va, false, false, false);
+
+    if (!pte || (!(*pte & PTE_P) && !PTE_IS_SWAPPED(*pte)))
+        return false;
+    if (flags)
+        *flags = *pte & PTE_SWAPKEEP;
+    return true;
+}
+
+void vmm_flush_va(uint64_t pml4, uint64_t va)
+{
+    uint64_t cr3;
+
+    __asm__ volatile("movq %%cr3, %0" : "=r"(cr3));
+    if ((cr3 & PTE_ADDR) == pml4)
+        __asm__ volatile("invlpg (%0)" : : "r"(va) : "memory");
+}
+
+uint64_t *vmm_next_user_pte(uint64_t pml4, uint64_t *cursor, unsigned want)
+{
+    uint64_t va = *cursor & ~(PAGE_SIZE - 1);
+    uint64_t *t4 = P2V(pml4);
+
+    while (va < USER_TOP) {
+        uint64_t e = t4[(va >> 39) & 511];
+        uint64_t *t;
+
+        if (!(e & PTE_P)) {
+            va = (va | 0x7FFFFFFFFFUL) + 1;
+            continue;
+        }
+        t = table_of(e);
+        e = t[(va >> 30) & 511];
+        if (!(e & PTE_P) || (e & PTE_PS)) {
+            va = (va | 0x3FFFFFFFUL) + 1;
+            continue;
+        }
+        t = table_of(e);
+        e = t[(va >> 21) & 511];
+        if (!(e & PTE_P) || (e & PTE_PS)) {
+            va = (va | 0x1FFFFFUL) + 1;
+            continue;
+        }
+        t = table_of(e);
+        e = t[(va >> 12) & 511];
+        if (((want & VMM_PRESENT) && (e & PTE_P)) || ((want & VMM_SWAPPED) && PTE_IS_SWAPPED(e))) {
+            *cursor = va;
+            return &t[(va >> 12) & 511];
+        }
+        va += PAGE_SIZE;
+    }
+    *cursor = 0;
+    return NULL;
 }
 
 bool vmm_translate(uint64_t pml4, uint64_t va, uint64_t *pa, uint64_t *flags)
@@ -225,9 +295,21 @@ uint64_t vmm_copy_user(uint64_t src)
                 p1 = table_of(p2[i2]);
                 for (i1 = 0; i1 < 512; i1++) {
                     uint64_t e = p1[i1], va, npa;
-                    if (!(e & PTE_P)) continue;
+                    if (!(e & PTE_P) && !PTE_IS_SWAPPED(e)) continue;
                     va = ((uint64_t)i4 << 39) | ((uint64_t)i3 << 30) |
                          ((uint64_t)i2 << 21) | ((uint64_t)i1 << 12);
+                    if (PTE_IS_SWAPPED(e)) {
+                        uint64_t *dpte;
+
+                        swap_dup(PTE_SWAP_SLOT(e));
+                        dpte = walk(dst, va, true, true, false);
+                        if (!dpte) {
+                            swap_free(PTE_SWAP_SLOT(e));
+                            goto fail;
+                        }
+                        *dpte = e;
+                        continue;
+                    }
                     npa = pmm_alloc();
                     if (!npa)
                         goto fail;
@@ -264,9 +346,12 @@ void vmm_destroy_user(uint64_t pml4)
                 uint64_t *p1;
                 if (!(p2[i2] & PTE_P)) continue;
                 p1 = table_of(p2[i2]);
-                for (i1 = 0; i1 < 512; i1++)
+                for (i1 = 0; i1 < 512; i1++) {
                     if (p1[i1] & PTE_P)
                         pmm_free(p1[i1] & PTE_ADDR);
+                    else if (PTE_IS_SWAPPED(p1[i1]))
+                        swap_free(PTE_SWAP_SLOT(p1[i1]));
+                }
                 pmm_free(p2[i2] & PTE_ADDR);
             }
             pmm_free(p3[i3] & PTE_ADDR);

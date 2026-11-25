@@ -2,6 +2,7 @@
 #include <cpu.h>
 #include <io.h>
 #include <kbd.h>
+#include <mouse.h>
 #include <sys/errno.h>
 
 #define KBD_DATA   0x60
@@ -114,8 +115,10 @@ static void kbd_irq(struct trapframe *tf)
         bool release = sc & 0x80;
         char c;
 
-        if (st & 0x20)
+        if (st & 0x20) {
+            mouse_byte(sc);
             continue;
+        }
         if (skip_bytes) {
             skip_bytes--;
             continue;

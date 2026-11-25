@@ -56,6 +56,10 @@ qsata=
 if [ "$(cfg QEMU_SATA)" = y ]; then
 	qsata=1
 fi
+qnvme=
+if [ "$(cfg QEMU_NVME)" = y ]; then
+	qnvme=1
+fi
 hostcc=${HOSTCC:-gcc}
 cols=$(tput cols 2>/dev/null || echo 80)
 rows=$(tput lines 2>/dev/null || echo 24)
@@ -97,6 +101,12 @@ EOF
 		cat <<'EOF'
 QEMUDISK = -drive file=$(DISK),if=none,id=disk0,format=raw \
            -device ide-hd,drive=disk0,bus=ide.0
+DISKDEP = $(DISK)
+EOF
+	elif [ -n "$qnvme" ]; then
+		cat <<'EOF'
+QEMUDISK = -drive file=$(DISK),if=none,id=disk0,format=raw \
+           -device nvme,drive=disk0,serial=nirmala0
 DISKDEP = $(DISK)
 EOF
 	else

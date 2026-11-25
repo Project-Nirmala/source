@@ -7,6 +7,8 @@
 #include <vfs.h>
 #include <serial.h>
 #include <tty.h>
+#include <mouse.h>
+#include <vmmdev.h>
 #include <fbcon.h>
 #include <sys/version.h>
 #include <fpu.h>
@@ -139,6 +141,8 @@ void kmain(void)
     serial_enable_rx();
     serial_probe_size();
     kbd_init();
+    mouse_init();
+    vmmdev_init();
     proc_init();
     pit_init(HZ);
     wallclock_init();

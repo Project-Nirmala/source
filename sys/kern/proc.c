@@ -341,6 +341,11 @@ struct proc *proc_find(int pid)
     return find_pid(pid);
 }
 
+struct proc *proc_slot(int slot)
+{
+    return slot > 0 && slot < MAXPROC ? ptab[slot] : NULL;
+}
+
 int proc_signal_pgrp(int pgid, int sig)
 {
     int i, n = 0;
